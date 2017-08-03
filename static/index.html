@@ -152,8 +152,8 @@ app = {
 			><div id="screen_resume" style="display:none;"
 				><h2 class="l10n">resume game</h2
 				><input type="text" id="resume_id" placeholder ="id" size="6" maxlength="6"
-					onkeypress="app.onEnter(event, function() { app.resume(); });" /
-				><ul class="hmenu"
+					onkeypress="app.onEnter(event, function() { app.resume(); });"
+				/><ul class="hmenu"
 					><li onclick="app.resume();"><span class ="l10n">resume</span></li
 					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
 				></ul
@@ -162,14 +162,14 @@ app = {
 			><div id="screen_join" style="display:none;"
 				><h2 class="l10n">join game</h2
 				><input type="text" id="join_id" placeholder ="id" size="6" maxlength="6"
-					onkeypress="app.onEnter(event, function() { app.join(); });" /
-				><ul class="hmenu"
+					onkeypress="app.onEnter(event, function() { app.join(); });"
+				/><ul class="hmenu"
 					><li onclick="app.join();"><span class ="l10n">join</span></li
 					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
 				></ul
 			></div
 
 		></div
-		><img id="logo" src="/static/eludi.logo.svg" onclick="document.location.href='https://eludi.net';"/
-	></body>
+		><img id="logo" src="/static/eludi.logo.svg" onclick="document.location.href='https://eludi.net';"
+	/></body>
 </html>
