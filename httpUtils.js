@@ -111,7 +111,7 @@ function createServer(ip, port, requestHandler, redirectHandler) {
 						if(prot.slice(-1)!=':')
 							prot += ':';
 						var hostname = redirect.hostname ? redirect.hostname : url.hostname;
-						var port = redirect.port ? redirect.port : url.port;
+						var port = redirect.port ? redirect.port : (url.port!=80 && url.port!=443) ? url.port : '';
 						var pathname = redirect.pathname ? redirect.pathname : redirect.path ?
 							('/' + redirect.path.join('/')) : url.pathname;
 						var search = redirect.search ? redirect.search :
