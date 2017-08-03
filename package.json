@@ -7,5 +7,6 @@
 	},
 	"main": "server.js",
 	"author": "Gerald Franz <gerald.franz@eludi.net>",
-	"license": "all rights reserved"
+	"private":true,
+	"license": "UNLICENSED"
 }
