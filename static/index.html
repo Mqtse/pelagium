@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<HTML>
+	<head>
+		<title>pelagium</title>
+		<meta charset="ISO-8859-15">
+		<meta name="author" content="Gerald Franz"/>
+		<meta name="description" content="turn-based online strategy game"/>
+		<meta name="keywords" content="water world,HTML5,javascript"/>
+
+		<meta name="viewport" content="user-scalable=no, width=device-width" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="white" />
+		<link rel="apple-touch-icon-precomposed" href="/static/icon_island256.png" />
+		<link rel="shortcut icon" href="/static/favicon.ico" />
+		<link href='http://fonts.googleapis.com/css?family=Montserrat:300,600' rel='stylesheet' type='text/css'>
+
+		<style type="text/css">
+html, body {
+	overflow:hidden;
+	height:100%;
+	margin: 0 auto;
+	font-family: 'Montserrat', sans-serif;
+	font-size: calc(0.9*(5vw + 3vh));
+	text-transform: uppercase;
+	color:white;
+	background: url(/static/pelagium.svg) left / contain no-repeat, url(/static/scillies.jpg) 50% / cover rgb(130,160,200);
+}
+
+:focus { outline: none; }
+
+#screens {
+	margin-left:15vh;
+	height:100%;
+	display:flex;
+	align-items: center;
+	z-index:3;
+}
+#screens ul {
+	margin:0;
+	padding:0;
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+#screens li {
+	margin:0.1em 0;
+	border:0;
+	color:rgba(0,0,0,0.5);
+	list-style: none;
+	font-weight: bold;
+
+	user-select: none;
+	-ms-user-select: none;
+	-moz-user-select: none;
+	-webkit-user-select: none;
+}
+
+#screens li:hover {
+	cursor: pointer;
+	color:rgba(255,255,255,0.8);
+}
+
+h2 {
+	margin:0 0 0.1em 0;
+	font-size: 125%;
+
+	user-select: none;
+	-ms-user-select: none;
+	-moz-user-select: none;
+	-webkit-user-select: none;
+}
+
+input {
+	background: none;
+	border: none;
+	border-bottom:0.2em solid rgba(255,255,255,0.5);
+	font-family: 'Montserrat', sans-serif;
+	font-size: calc(0.9*(5vw + 3vh));
+	font-weight: bold;
+	color:rgba(0,0,0,0.5);
+}
+
+#logo {
+	position: fixed;
+	right:0.5em;
+	bottom:0.5em;
+	width:1.5em;
+	opacity:0.75;
+}
+#logo:hover {
+	opacity: 1.0;
+	cursor: pointer;
+}
+		</style>
+
+		<script type="text/javascript" src="/static/infra.js"></script>
+		<script type="text/javascript">
+window.onerror=function(msg, url, linenumber) {
+	alert('Error message: '+msg+'\nURL: '+url+'\nLine Number: '+linenumber);
+}
+
+app = {
+	//--- general controller methods ---
+	screen: function(screen, display) {
+		eludi.switchToChild('screen_'+screen, display);
+	},
+	onEnter: function(event, callback) {
+		if (event.which == 13 || event.keyCode == 13) {
+			callback();
+			return false; // do not propagate event
+		}
+		return true;
+	},
+	//--- specific functionality ---
+	init: function() {
+		if(localStorage && localStorage.pelagium) {
+			var settings = JSON.parse(localStorage.pelagium);
+			if(settings.resume)
+			 	document.getElementById("resume_id").value = settings.resume;
+		}
+		eludi.click2touch();
+	},
+	start: function() {
+		eludi.openUrl('/static/pelagium.html?cmd=start', {}, false);
+	},
+	resume: function() {
+		var id = document.getElementById("resume_id").value.toUpperCase();
+		if(id.length)
+			eludi.openUrl('/static/pelagium.html?cmd=resume&id='+id, {}, false);
+	},
+	join: function() {
+		var id = document.getElementById("join_id").value.toUpperCase();
+		if(id.length)
+			eludi.openUrl('/static/pelagium.html?cmd=join&id='+id, {}, false);
+	},
+	close: function() {
+		window.close();
+	}
+}
+		</script>
+	</head>
+
+	<body onload="app.init();">
+		<div id="screens"
+			><ul id="screen_main"
+				><li class="l10n" onclick="app.screen('resume');">resume game</li
+				><li class="l10n" onclick="app.start();">start game</li
+				><li class="l10n" onclick="app.screen('join');">join game</li
+				><li class="l10n" onclick="app.close()">exit</li
+			></ul
+
+			><div id="screen_resume" style="display:none;"
+				><h2 class="l10n">resume game</h2
+				><input type="text" id="resume_id" placeholder ="id" size="6" maxlength="6"
+					onkeypress="app.onEnter(event, function() { app.resume(); });" /
+				><ul class="hmenu"
+					><li onclick="app.resume();"><span class ="l10n">resume</span></li
+					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
+				></ul
+			></div
+
+			><div id="screen_join" style="display:none;"
+				><h2 class="l10n">join game</h2
+				><input type="text" id="join_id" placeholder ="id" size="6" maxlength="6"
+					onkeypress="app.onEnter(event, function() { app.join(); });" /
+				><ul class="hmenu"
+					><li onclick="app.join();"><span class ="l10n">join</span></li
+					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
+				></ul
+			></div
+
+		></div
+		><img id="logo" src="/static/eludi.logo.svg" onclick="document.location.href='https://eludi.net';"/
+	></body>
+</html>

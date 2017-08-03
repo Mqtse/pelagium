@@ -1,12 +1,11 @@
 {
-  "name": "openshift-cartridge-nodejs-template",
-  "version": "1.0.1",
-  "description": "Custom Node.js cartridge for OpenShift - sample application",
-  "private": true,
-  "main": "start.js",
-  "scripts": {
-    "start": "node --use_strict start.js"
-  },
-  "author": "Ionut-Cristian Florescu <ionut.florescu@gmail.com>",
-  "license": "ISC"
+	"name":"pelagium",
+	"description": "multiplayer online turn-based strategy game in an island world",
+	"version":"0.4.1",
+	"scripts": {
+		"start": "node server.js --devMode 0"
+	},
+	"main": "server.js",
+	"author": "Gerald Franz <gerald.franz@eludi.net>",
+	"license": "all rights reserved"
 }
