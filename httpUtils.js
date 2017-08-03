@@ -108,6 +108,8 @@ function createServer(ip, port, requestHandler, redirectHandler) {
 					if(typeof redirect=='object') {
 						var prot = redirect.protocol ? redirect.protocol : url.protocol ? url.protocol :
 							req.connection.encrypted ? 'https:' : 'http:';
+						if(prot.slice(-1)!=':')
+							prot += ':';
 						var hostname = redirect.hostname ? redirect.hostname : url.hostname;
 						var port = redirect.port ? redirect.port : url.port;
 						var pathname = redirect.pathname ? redirect.pathname : redirect.path ?
