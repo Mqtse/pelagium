@@ -235,7 +235,7 @@ function MapHex(params) {
 
 	this.get = function(x,y) {
 		if(x<0 || y<0 || x>=this.pageSz || y>=this.pageSz)
-			return { terrain:MD.WATER, color:null};
+			return { terrain:MD.WATER, color:null };
 		return this.page.get(x, y);
 	}
 	this.generators = {
@@ -407,8 +407,11 @@ function MapHex(params) {
 				var obj = terrainMap.objectives[i];
 				var tile = page.get(obj.x, obj.y);
 				tile.id = i;
-				if(obj.party)
+				if(obj.party) {
 					tile.party = obj.party;
+					tile.production = 'inf';
+					tile.progress = 0;
+				}
 			}
 		}
 		return page;
@@ -442,7 +445,7 @@ function MapHex(params) {
 
 		if(params.units) // units:
 			for(var i=params.units.length; i--;)
-				this.unitAdd(new Unit(params.units[i]), page);
+				this.unitAdd(params.units[i], page);
 
 		return page;
 	}
@@ -452,9 +455,9 @@ function MapHex(params) {
 			page = this.page;
 		var tile = page.get(unit.x, unit.y);
 		if(!tile || tile.unit)
-			return false;
-		tile.unit = unit;
-		return true;
+			return null;
+		tile.unit = new Unit(unit);
+		return tile.unit;
 	}
 	this.unitMove = function(unit, dest, events) {
 		var tile = this.page.get(dest.x, dest.y);

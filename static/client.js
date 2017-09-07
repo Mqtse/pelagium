@@ -74,6 +74,81 @@ function AnimationExplode(tStart, unit, callback, cbData) {
 	this.tStart = tStart;
 }
 
+function ProductionController(selector, unitColor, callback) {
+	var element=document.querySelector(selector);
+
+	this.setProduction = function(id, progress) {
+		this.progress = progress = progress ? progress : 0.0;
+		for(var i=0, end=element.children.length; i<end; ++i) {
+			var child = element.children[i];
+			var toolId = child.dataset.id;
+			var isSelected = (toolId == id);
+
+			var canvas = child.firstElementChild;
+			var dc = extendCanvasContext(canvas.getContext('2d'));
+			dc.clearRect(0,0, canvas.width,canvas.height);
+
+			var cx = canvas.width/2, cy=canvas.height/2;
+			if(!isSelected)
+				dc.circle(cx,cy, canvas.width*0.5, {fillStyle:'rgba(0,0,0,0.5)'});				
+			else {
+				dc.circle(cx,cy, canvas.width*0.4, {fillStyle:'rgba(0,0,0,0.5)'});
+
+				dc.lineWidth = canvas.width*0.1;
+				dc.beginPath();
+				dc.strokeStyle='rgba(255,255,255,1.0)';
+				dc.arc(cx,cy, canvas.width*0.45, 1.5*Math.PI, 1.5*Math.PI+2*Math.PI*progress, false);
+				dc.stroke();
+				dc.strokeStyle='rgba(255,255,255,0.5)';
+				dc.arc(cx,cy, canvas.width*0.45, 1.5*Math.PI+2*Math.PI*progress, 1.5*Math.PI+2*Math.PI, false);
+				dc.closePath();
+				dc.stroke();
+				this.production = id;
+			}
+			var sz = 24;
+			dc.save();
+			dc.translate(0.5*(canvas.width-sz), 0.5*(canvas.height-sz));
+			dc.beginPath();
+			dc.rect(0,0, sz,sz);
+			dc.clip();
+			dc.fillStyle = unitColor;
+			dc.fillRect(0,0, sz,sz);
+			client.drawUnitSymbol(dc, toolId, sz,sz, sz/6, 'white');
+			dc.restore();
+		}
+		return this;
+	}
+	this.setVisible = function(id, isVisible) {
+		if(isVisible === undefined)
+			isVisible = true;
+		for(var i=0, end=element.children.length; i<end; ++i) {
+			var child = element.children[i];
+			if(child.dataset.id != id) 
+				continue;
+			child.style.display = isVisible ? 'inherit' : 'none';
+			break;
+		}
+		return this;
+	}
+
+	for(var id in MD.Unit) {
+		var unitType = MD.Unit[id];
+		var item = document.createElement('li');
+		item.dataset.id = id;
+
+		var canvas = document.createElement('canvas');
+		canvas.width = canvas.height = 48;
+		item.appendChild(canvas);
+		item.onclick = function(evt) {
+			callback(evt.currentTarget.dataset.id);
+			return true;
+		}
+		element.appendChild(item);
+	}
+
+	this.setProduction(); // initializes visualization
+}
+
 // --- SimProxy ----------------------------------------------------
 function SimProxy(params, callback) {
 	this.getSimEvents = function(party, params, callback) {
@@ -192,6 +267,9 @@ client = {
 			self.handleUIEvent({ type:event.currentTarget.dataset.id }); });
 		if(!document.fullscreenEnabled)
 			document.querySelector('li[data-id="fullscreen"]').style.display = 'none';
+		this.toolbarProduction = new ProductionController('#toolbar_production', MD.Party[this.party].color,
+			function(unitType) { if(self.cursor) self.handleProductionInput(unitType, self.cursor.x, self.cursor.y); });
+		this.toggleToolbar('main');
 		eludi.click2touch();
 
 		this.state = 'init';
@@ -266,6 +344,18 @@ client = {
 			m.style.display = (m.style.display=='none') ? '' : 'none';
 		else
 			m.style.display = onOrOff ? '' : 'none';
+	},
+
+	toggleToolbar: function(id) {
+		if(id==this.currentToolbar)
+			return;
+		this.currentToolbar = id;
+		eludi.switchToSibling('toolbar_'+id, '');
+		
+		if(id=='production' && this.cursor) {
+			var tile = this.mapView.get(this.cursor.x, this.cursor.y);
+			this.toolbarProduction.setProduction(tile.production, tile.progress);
+		}
 	},
 
 	handlePointerEvent: function(event) {
@@ -383,6 +473,7 @@ client = {
 		case 'spinner':
 			break; // ignore
 		case 'fullscreen':
+			this.toggleMenu(false);
 			return this.toggleFullScreen();
 		case "suspend":
 			return this.close(true);
@@ -395,6 +486,22 @@ client = {
 		default:
 			console.error('unhandled UI event', event);
 		}
+	},
+
+	handleProductionInput: function(unitType, x, y) { 
+		if(this.state!='input')
+			return;
+		var tile = this.mapView.get(x, y);
+		if(!tile || tile.terrain!=MD.OBJ || tile.party != this.party || tile.production==unitType || !(unitType in MD.Unit))
+			return;
+
+		var order = { type:'production', unit:unitType, x:x, y:y };
+		console.log('order', order);
+		this.orders.push(order);
+
+		tile.production = unitType;
+		tile.progress = 0;
+		this.toolbarProduction.setProduction(unitType, 0.0);
 	},
 
 	handleMapInput: function(type, cellX, cellY) {
@@ -416,6 +523,11 @@ client = {
 			else if(key!='color')
 				this.cursor[key] = value;
 		}
+		if(tile.terrain == MD.OBJ && tile.party == this.party)
+			this.toggleToolbar('production');
+		else
+			this.toggleToolbar('main');
+
 		if(!tile.unit || (this.selUnit == tile.unit))
 			this.deselectUnit();
 		else
@@ -619,21 +731,7 @@ client = {
 		var sdc = extendCanvasContext(sprite.getContext('2d'));
 		sdc.fillStyle = unit.party.color;
 		sdc.fillRect(0,0, w, h);
-		// stroked unit type:
-		sdc.strokeStyle = 'white';
-		sdc.lineWidth=scale*transf.scx/6;
-		switch(unit.type.id) {
-		case 'inf':
-			sdc.strokeLine(0,0, w,h);
-			sdc.strokeLine(0,h, w,0);
-			break;
-		case 'kv':
-			sdc.strokeLine(0,h, w,0);
-			break;
-		case 'art':
-			sdc.circle(w/2,h/2, 1.25*sdc.lineWidth, {fillStyle:'white'});
-			break;
-		}
+		this.drawUnitSymbol(sdc, unit.type.id, w,h, scale*transf.scx/6, 'white');
 
 		dc.save();
 		dc.globalAlpha = transf.opacity;
@@ -643,6 +741,23 @@ client = {
 		dc.shadowBlur = sdc.lineWidth/2;
 		dc.drawImage(sprite, x,y, w, h);
 		dc.restore();
+	},
+
+	drawUnitSymbol: function(dc, type, w,h, lineWidth, color) {
+		dc.strokeStyle = color;
+		dc.lineWidth = lineWidth;
+		switch(type) {
+		case 'inf':
+			dc.strokeLine(0,0, w,h);
+			dc.strokeLine(0,h, w,0);
+			break;
+		case 'kv':
+			dc.strokeLine(0,h, w,0);
+			break;
+		case 'art':
+			dc.circle(w/2,h/2, 1.25*lineWidth, {fillStyle:color});
+			break;
+		}
 	},
 
 	drawSelTile: function(dc, tile) {
@@ -866,6 +981,7 @@ client = {
 			this.redrawMap = true;
 			return false;
 
+		case 'production':
 		case 'blocked':
 			// todo
 		default:

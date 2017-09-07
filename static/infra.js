@@ -281,17 +281,18 @@ eludi = {
 		}
 		return events.length ? events : false;
 	},
-	/// switches a single child on, and all other children of its parent off
-	switchToChild: function(childId, display) {
-		var refChild = document.getElementById(childId);
-		if(!refChild) return false;
+	/// switches a single sibling on, and all other siblings off
+	switchToSibling: function(id, display) {
+		var refNode = document.getElementById(id);
+		if(!refNode)
+			return false;
 		if(display===undefined)
 			display="block";
-		var parent= refChild.parentNode;
-		for(var i = 0; i < parent.childNodes.length; ++i) {
-			var child = parent.childNodes[i];
-			if(child.nodeType!=1) continue;
-			child.style.display = (child===refChild) ? display : "none";
+		var siblings = refNode.parentNode.childNodes;
+		for(var i = 0; i < siblings.length; ++i) {
+			var node = siblings[i];
+			if(node.nodeType==1)
+				node.style.display = (node===refNode) ? display : "none";
 		}
 		return true;
 	},

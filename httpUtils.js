@@ -30,6 +30,9 @@ function respond(resp, code, body) {
 
 function serveStatic(resp, path, basePath) {
 	var inferMime = function(fname) {
+		if(fname.endsWith('manifest.json'))
+			return 'application/manifest+json';
+
 		switch(fname.substr(fname.lastIndexOf('.')+1).toLowerCase()) {
 		case 'js':
 			return 'application/javascript';

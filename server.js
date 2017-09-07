@@ -16,12 +16,12 @@ httpUtils.parseArgs(process.argv.slice(2), cfg);
 
 function ServerPelagium(topLevelPath) {
 
-	this.makeid = function(len) {
+	this.makeid = function(len, prefix) {
 		var possible = "ABCDEFGHKLMNPQRSTUVWXYZ123456789";
 		var valuesPerChar = possible.length;
 		do {
-			var id = "";
-			for( var i=0; i < len; ++i)
+			var id = (typeof prefix === 'string') ? prefix : "";
+			for( var i = id.length; i < len; ++i)
 				id += possible.charAt(Math.floor(Math.random() * valuesPerChar));
 		} while(this.matches.has(id));
 		return id;
@@ -55,7 +55,7 @@ function ServerPelagium(topLevelPath) {
 			return [ 403, 'Additional players forbidden'];
 
 		var user = { party: match.users.size + 1 };
-		user.id = this.makeid(6); 
+		user.id = this.makeid(6, match.id.substr(0,1)); 
 		if(params.name)
 			user.name = params.name;
 		if(params.email)

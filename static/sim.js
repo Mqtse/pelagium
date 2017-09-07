@@ -26,8 +26,12 @@ function Sim(params, callback) {
 				continue; // out of sight
 			if(tile.unit)
 				units.push(tile.unit.serialize());
-			if(tile.party)
-				objs.push({x:x, y:y, party:tile.party});
+			if(tile.party) {
+				var obj = {x:x, y:y, party:tile.party};
+				if(tile.party == party)
+					obj.progress = tile.progress;
+				objs.push(obj);
+			}
 		}
 		callback({ units:units, objectives:objs, fov:fov.serialize(true),
 			state:this.state, turn:this.turn, ordersReceived:ordersReceived });
@@ -258,8 +262,10 @@ function Sim(params, callback) {
 		}
 
 		var isGameOver = this._isGameOver(events);
-		if(!isGameOver)
+		if(!isGameOver) {
 			events.push({type:'turn', turn:this.turn+1});
+			this._updateProduction(events);
+		}
 		this._dispatchSimEvents(events);
 		if(isGameOver)
 			return;
@@ -365,6 +371,29 @@ function Sim(params, callback) {
 		return true;
 	}
 
+	this._updateProduction = function(events) {
+		var pageSz = this.map.pageSz;
+		for(var y=0; y!=pageSz; ++y) for(var x=0; x!=pageSz; ++x) {
+			var tile = this.map.get(x,y);
+			if(!tile.production || !tile.party)
+				continue;
+			++tile.progress;
+			var unitType = MD.Unit[tile.production];
+			if(tile.progress >= unitType.cost) {
+				var unit = tile.unit ? null : { x:x, y:y };
+				// todo check immediate vicinity
+				if(unit) {
+					unit.type = tile.production;
+					unit.party = tile.party;
+					unit = this.map.unitAdd(unit);
+					events.push({type:'production', x:unit.x, y:unit.y, unit:unit.serialize()});
+					tile.progress = 0;
+				}
+				// todo communicate progress
+			}
+		}
+	}
+
 	this._initStats = function(scenario) {
 		var parties = {};
 		for(var key in scenario.starts)
@@ -424,7 +453,6 @@ function Sim(params, callback) {
 					{type:'inf', party:2, x:22, y:16},
 					{type:'inf', party:2, x:21, y:16},
 					{type:'inf', party:2, x:23, y:15},
-					//{type:'art', party:0, x:6, y:6},
 				],
 			},
 			estrela: { generator: "islandInhabited", seed: "pelagium_9_5", filterMinorObjectives:true, starts: { 1:1, 2:7 } },

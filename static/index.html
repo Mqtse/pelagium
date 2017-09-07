@@ -12,6 +12,7 @@
 		<meta name="apple-mobile-web-app-status-bar-style" content="white" />
 		<link rel="apple-touch-icon-precomposed" href="/static/icon_island256.png" />
 		<link rel="shortcut icon" href="/static/favicon.ico" />
+		<link rel="manifest" href="/static/manifest.json" />
 		<link href='https://fonts.googleapis.com/css?family=Montserrat:300,600' rel='stylesheet' type='text/css'>
 
 		<style type="text/css">
@@ -102,7 +103,7 @@ window.onerror=function(msg, url, linenumber) {
 app = {
 	//--- general controller methods ---
 	screen: function(screen, display) {
-		eludi.switchToChild('screen_'+screen, display);
+		eludi.switchToSibling('screen_'+screen, display);
 	},
 	onEnter: function(event, callback) {
 		if (event.which == 13 || event.keyCode == 13) {
