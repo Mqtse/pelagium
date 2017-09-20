@@ -223,13 +223,14 @@ function MapHex(params) {
 			units[i].getFieldOfView(this, fov);
 		return fov;
 	}
-	this.getTerrain = function(page) {
+	this.getTerrain = function(page, compress) {
 		if(page!=0)
 			return null;
 		var view = { page:0, width:this.pageSz, height:this.pageSz, data:[] };
-		var lastTerrain = -1;
 		for(var i=0, end=this.page.data.length; i!=end; ++i)
 			view.data.push(this.page.data[i].terrain);
+		if(compress)
+			view.data = MatrixHex.rleEncode(view.data);
 		return view;
 	}
 
@@ -395,59 +396,50 @@ function MapHex(params) {
 		return newMap;
 	}
 
-	this.unifyMap = function(terrainMap) {
-		var page = new MatrixHex(terrainMap.width, terrainMap.height, { terrain:0 });
+	this.unifyMap = function(terrain, tiles, objectives, units) {
+		var page = new MatrixHex(terrain.width, terrain.height, { terrain:0 });
 		for(var x=0; x<page.width; ++x) for(var y=0; y<page.height; ++y) {
-			var terrain = terrainMap.get(x,y);
 			var tile = page.get(x,y);
-			tile.terrain = terrain;
+			tile.terrain = terrain.get(x,y);
 		}
-		if(terrainMap.objectives) {
-			for(var i=terrainMap.objectives.length; i--; ) {
-				var obj = terrainMap.objectives[i];
-				var tile = page.get(obj.x, obj.y);
-				tile.id = i;
-				if(obj.party) {
-					tile.party = obj.party;
-					tile.production = 'inf';
-					tile.progress = 0;
-				}
+		if(tiles) for(var i = tiles.length; i--; ) {
+			var tile = tiles[i];
+			page.set(tile.x, tile.y, tile);
+		}
+		if(objectives) for(var i=objectives.length; i--; ) {
+			var obj = objectives[i];
+			var tile = page.get(obj.x, obj.y);
+			tile.id = i;
+			if(obj.party) {
+				tile.party = obj.party;
+				tile.production = obj.production || 'inf';
+				tile.progress = obj.progress || 0;
 			}
 		}
+		if(units) for(var i=units.length; i--;)
+			this.unitAdd(units[i], page);
 		return page;
 	}
 
 	this.createScenario = function(params) {
-		//console.log('createScenario', params);
-		// create page:
+		// create terrain:
 		var seed = params.seed || 0;
-		var page = this.generators[params.generator](seed);
-		page.key = seed;
+		var terrain = this.generators[params.generator](seed);
 
-		if(page.objectives) { // create scenario:
+		if(terrain.objectives) { // create scenario:
 			if(params.filterMinorObjectives)
-				this.filterMinorObjectives(page);
+				this.filterMinorObjectives(terrain);
 			if(params.starts) for(var party in params.starts) {
 				var objId = params.starts[party];
-				if(objId<page.objectives.length)
-					page.objectives[objId].party = party;
+				if(objId<terrain.objectives.length)
+					terrain.objectives[objId].party = party;
 			}
 			else {
-				page.objectives[0].party = 1;
-				page.objectives[page.objectives.length-1].party = 2;
+				terrain.objectives[0].party = 1;
+				terrain.objectives[terrain.objectives.length-1].party = 2;
 			}
 		}
-		page = this.unifyMap(page);
-		if(params.tiles) for(var i = params.tiles.length; i--; ) {
-			var tile = params.tiles[i];
-			page.set(tile.x, tile.y, tile);
-		}
-
-		if(params.units) // units:
-			for(var i=params.units.length; i--;)
-				this.unitAdd(params.units[i], page);
-
-		return page;
+		return this.unifyMap(terrain, params.tiles, terrain.objectives, params.units);
 	}
 
 	this.unitAdd = function(unit, page) {
@@ -461,10 +453,7 @@ function MapHex(params) {
 	}
 	this.unitMove = function(unit, dest, events) {
 		var tile = this.page.get(dest.x, dest.y);
-		if(!tile)
-			return false;
-		if((unit.type.medium ==MD.GROUND && tile.terrain == MD.WATER)
-			|| (unit.type.medium == MD.WATER && tile.terrain != MD.WATER))
+		if(!tile || !MD.isNavigable(tile.terrain, unit.type))
 			return false;
 		if(tile.unit && tile.unit.party==unit.party) {
 			events.push({ type:'blocked', unit:unit.id, x:dest.x, y:dest.y, blocker:tile.unit.id });
@@ -479,8 +468,38 @@ function MapHex(params) {
 		return true;
 	}
 
-	this.pageSz = params.pageSz || 32;
-	this.page = this.createScenario(params);
+	this.serialize = function() {
+		var data = {
+			terrain: this.getTerrain(0, true),
+			units:[],
+			objectives:[]
+		}
+		for(var i=0, end = this.page.data.length; i<end; ++i) {
+			var tile = this.page.data[i];
+			if(tile.unit)
+				data.units.push(tile.unit.serialize());
+			if(tile.terrain == MD.OBJ)
+				data.objectives.push({ id:tile.id, x:i%this.pageSz, y:Math.floor(i/this.pageSz) });
+			if(tile.party) {
+				var obj = data.objectives[data.objectives.length-1];
+				obj.party = tile.party;
+				obj.production = tile.production;
+				obj.progress = tile.progress;
+			}
+		}
+		return data;
+	}
+	this.deserialize = function(data) {
+		var terrain = new MatrixHex(data.terrain);
+		this.pageSz = terrain.width;
+		this.page = this.unifyMap(terrain, null, data.objectives, data.units);
+	}
+
+	if('seed' in params) {
+		this.pageSz = params.pageSz || 32;
+		this.page = this.createScenario(params);
+	}
+	else this.deserialize(params);
 }
 
 MapHex.finalizeAppearance = function(page) {
@@ -515,11 +534,7 @@ function Unit(data) {
 
 	this.getFieldOfMovement = function(map, unitsToIgnore) {
 		var isAccessible = function(unit, tile, unitsToIgnore) {
-			if(!tile)
-				return false;
-
-			if((unit.type.medium ==MD.GROUND && tile.terrain == MD.WATER)
-				|| (unit.type.medium == MD.WATER && tile.terrain != MD.WATER))
+			if(!tile || !MD.isNavigable(tile.terrain, unit.type))
 				return false;
 			if(tile.unit && tile.unit.party.id == unit.party.id) {
 				if(!unitsToIgnore || !(tile.unit.id in unitsToIgnore))

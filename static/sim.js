@@ -9,10 +9,10 @@ if(typeof require !== 'undefined') {
 function Sim(params, callback) {
 	/// pure terrain
 	this.getTerrain = function(party, params, callback) {
-		var terrain = this.map.getTerrain(params.page ? params.page : 0);
-		terrain.data = MatrixHex.rleEncode(terrain.data);
+		var terrain = this.map.getTerrain(params.page ? params.page : 0, true);
 		callback(terrain);
 	}
+
 	/// military situation, as obvious to a party, primary means of synchronizing clients
 	this.getSituation = function(party, params, callback) {
 		var pageSz = this.map.pageSz;
@@ -28,14 +28,17 @@ function Sim(params, callback) {
 				units.push(tile.unit.serialize());
 			if(tile.party) {
 				var obj = {x:x, y:y, party:tile.party};
-				if(tile.party == party)
+				if(tile.party == party) {
+					obj.production = tile.production;
 					obj.progress = tile.progress;
+				}
 				objs.push(obj);
 			}
 		}
 		callback({ units:units, objectives:objs, fov:fov.serialize(true),
 			state:this.state, turn:this.turn, ordersReceived:ordersReceived });
 	}
+
 	/// long polling event listener
 	this.getSimEvents = function(party, params, callback) {
 		this.simEventListeners[party]=callback;
@@ -110,33 +113,34 @@ function Sim(params, callback) {
 				unitsHavingOrders[unit] = true;
 			}
 
+			var orderValid = false;
 			switch(order.type) {
 			case 'move': {
 				var unit = this.map.get(order.from_x, order.from_y).unit;
-				if(!unit || unit.id != order.unit || unit.party.id != party) {
-					delete orders[i];
-					++numInvalidOrders;
-					continue;
-				}
+				if(!unit || unit.id != order.unit || unit.party.id != party)
+					break;
 				var distance = MatrixHex.distHex(unit, { x:order.to_x, y:order.to_y });
-				if(distance==0 || distance>unit.type.move) {
-					delete orders[i];
-					++numInvalidOrders;
-					continue;
-				}
+				if(distance>0 && distance<=unit.type.move)
+					orderValid = true;
 				break;
 			}
 			case 'surrender':
-				if(order.party != party) {
-					console.error('invalid order', order);
-					delete orders[i];
-					++numInvalidOrders;
-				}
+				if(order.party == party)
+					orderValid = true
 				break;
+			case 'production': {
+				var tile = this.map.get(order.x, order.y);
+				if(tile && tile.party==party && tile.terrain==MD.OBJ && (order.unit in MD.Unit))
+					orderValid = true;
+				break;
+			}
 			default:
-				console.error('invalid order type', order);
+				break;
+			}
+			if(!orderValid) {
+				console.error('invalid order', order);
 				delete orders[i];
-				++numInvalidOrders;
+				++numInvalidOrders;				
 			}
 		}
 		return numInvalidOrders < orders.length;
@@ -245,7 +249,9 @@ function Sim(params, callback) {
 				if(dest.terrain == MD.OBJ && dest.party!=unit.party.id) { // objective captured
 					if(dest.party in this.parties)
 						--this.parties[dest.party].objectives;
-					dest.party=unit.party.id;
+					dest.party = unit.party.id;
+					dest.progress = -1;
+					dest.production = 'inf';
 					if(dest.party in this.parties)
 						++this.parties[dest.party].objectives;
 					events.push({type:'capture', x:order.to_x, y:order.to_y, party:unit.party.id});
@@ -256,6 +262,14 @@ function Sim(params, callback) {
 				events.push(order);
 				this.parties[order.party].objectives = 0;
 				break;
+			case 'production': {
+				var tile = this.map.get(order.x, order.y);
+				if(tile.production != order.unit) {
+					tile.production = order.unit;
+					tile.progress = 0;
+				}
+				break;
+			}
 			default:
 				console.error('invalid order', order);
 			}
@@ -354,6 +368,9 @@ function Sim(params, callback) {
 	}
 
 	this._isGameOver = function(events) {
+		if(this.state == 'over')
+			return true;
+
 		var loosers = [];
 		var winners = [];
 		for(var key in this.parties) {
@@ -381,19 +398,60 @@ function Sim(params, callback) {
 			var unitType = MD.Unit[tile.production];
 			if(tile.progress >= unitType.cost) {
 				var unit = tile.unit ? null : { x:x, y:y };
-				// todo check immediate vicinity
-				if(unit) {
+				var offset = Math.floor(Math.random()*6);
+				for(var i=0; unit===null && i<6; ++i) { // check immediate vicinity
+					var unit = MatrixHex.polar2hex({ x:x, y:y }, (i+offset)%6, 1);
+					var nbTile = this.map.get(unit.x, unit.y);
+					if(!nbTile || nbTile.unit || !MD.isNavigable(nbTile.terrain, unitType))
+						unit = null;
+				}
+				if(!unit)
+					events.push({type:'productionBlocked', x:x, y:y, party:tile.party });
+				else {
 					unit.type = tile.production;
 					unit.party = tile.party;
 					unit = this.map.unitAdd(unit);
-					events.push({type:'production', x:unit.x, y:unit.y, unit:unit.serialize()});
+					events.push({type:'production', x:unit.x, y:unit.y, origin_x:x, origin_y:y,
+						unit:unit.serialize()});
 					tile.progress = 0;
+					++this.parties[tile.party].units;
 				}
-				// todo communicate progress
 			}
 		}
 	}
 
+	this._serialize = function() {
+		var data = {
+			scenario: this.scenario,
+			timePerTurn: this.timePerTurn,
+			devMode: this.devMode,
+			turn: this.turn,
+			turnStartTime: this.turnStartTime,
+			simEventCounter: this.simEventCounter,
+			map: this.map.serialize(),
+			parties: {},
+			state: this.state
+		};
+		for(var key in this.parties) {
+			var party = this.parties[key];
+			data.parties[key] = { objectives:party.objectives, units:party.units, orders:party.orders };
+		}
+		return data;
+	}
+	this._deserialize = function(data) {
+		this.scenario = data.scenario;
+		this.timePerTurn = data.timePerTurn;
+		this.devMode = data.devMode;
+		this.turn = data.turn;
+		this.turnStartTime = data.turnStartTime;
+		this.simEventCounter = data.simEventCounter;
+		this.map = new MapHex(data.map);
+		this.parties = data.parties;
+		for(var key in this.parties)
+			this.parties[key].fov = this.map.getFieldOfView(key);
+		this.state = data.state;
+	}
+		
 	this._initStats = function(scenario) {
 		var parties = {};
 		for(var key in scenario.starts)
@@ -481,11 +539,14 @@ function Sim(params, callback) {
 		this.simEventCounter = 0;
 		this.turn = 1;
 		this.turnStartTime = new Date()/1000.0;
-		this.simEventListeners = { };
-		this.state = 'init';
 	}
 
-	this._init(params);
+	this.state = 'init';
+	if('turn' in params)
+		this._deserialize(params);
+	else
+		this._init(params);
+	this.simEventListeners = { };
 	if(callback)
 		callback({ party:params.party ? params.party : 1 }, this);
 }

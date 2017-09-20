@@ -5,12 +5,13 @@ var httpUtils = require('./httpUtils');
 var Sim = require('./static/sim');
 
 var cfg = {
-	host:process.env.OPENSHIFT_NODEJS_IP || '0.0.0.0',
-	port:process.env.OPENSHIFT_NODEJS_PORT || 1771,
-	isOpenshift: (process.env.OPENSHIFT_NODEJS_IP!=null),
-	devMode: 1
+	host:'0.0.0.0',
+	port:1771,
+	devMode: 1,
+	persistence:false
 }
 httpUtils.parseArgs(process.argv.slice(2), cfg);
+console.log(cfg);
 
 //------------------------------------------------------------------
 
@@ -66,6 +67,57 @@ function ServerPelagium(topLevelPath) {
 		console.log('match', match.id, 'new party:', user);
 		// todo: Sim and coplayers should be informed that another player has joined
 		return [ 200, { match:match.id, id:user.id, party:user.party } ];
+	}
+
+	this.serialize = function() {
+		var data = {
+			path: this.path,
+			matches: {}
+		}
+		this.matches.forEach(function(match, id) {
+			if(match.id===id && match.sim.state!=='over')
+				data.matches[id] = { sim:match.sim._serialize(), users:Array.from(match.users.entries()) };
+		});
+		return data;
+	}
+	this.deserialize = function(data) {
+		this.path = data.path;
+
+		for(var id in data.matches) {
+			if(this.matches.has(id)) {
+				console.warn('cannot deserialize match id', id, ': id already exists.');
+				continue;
+			}
+			var matchData = data.matches[id];
+			var match = { id:id, sim:new Sim(matchData.sim), users:new Map() };
+
+			var allIdsUnique = true;
+			for(var i=0; i<matchData.users.length && allIdsUnique; ++i) {
+				var userId = matchData.users[i][0];
+				if(this.matches.has(userId)) {
+					console.warn('cannot deserialize match id', id, ': user id', userId, 'already exists.');
+					allIdsUnique = false;
+				}
+				match.users.set(userId, matchData.users[i][1]);
+			}
+			if(allIdsUnique) {
+				this.matches.set( id, match );
+				var self = this;
+				match.users.forEach(function(user, id) {
+					self.matches.set( id, match );
+				});
+			}
+		}
+	}
+	this.resumeFromFile = function(filename) {
+		var data;
+		try {
+			data = fs.readFileSync(filename, 'utf8');
+		} catch(err) {
+			return console.warn('resuming pelagium from file', filename, 'failed:', err);
+		}
+		this.deserialize(JSON.parse(data));
+		console.log('pelagium state successfully restored from file', filename);
 	}
 
 
@@ -128,6 +180,8 @@ function ServerPelagium(topLevelPath) {
 	this.matches = new Map();
 }
 var serverPelagium = new ServerPelagium('pelagium');
+if(cfg.persistence)
+	serverPelagium.resumeFromFile(cfg.persistence);
 
 //------------------------------------------------------------------
 
@@ -145,10 +199,18 @@ var server = httpUtils.createServer(cfg.host, cfg.port, function(req, resp, url)
 		httpUtils.respond(resp, 404, "Not Found");
 	}
 }, function(req, url) { // redirect handler
-	if(cfg.isOpenshift && req.headers['x-forwarded-proto'] == 'http') {
-		return { protocol:'https' };
-	}
 	if(!url.path.length)
 		return { path:[ serverPelagium.path ] };
 });
-httpUtils.onShutdown(function() { console.log( "\nshutting down..." ); });
+
+httpUtils.onShutdown(function() {
+	console.log( "\nshutting down..." );
+	if(cfg.persistence) {
+		fs.writeFileSync(cfg.persistence, JSON.stringify(serverPelagium.serialize()));
+		console.log('  pelagium state persisted as '+cfg.persistence);
+	}
+	console.log( "DONE." );
+});
+httpUtils.onInfo(function() {
+	console.log('matches:',serverPelagium.matches.size);
+});

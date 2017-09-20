@@ -84,14 +84,17 @@ function parseUrl(url, params) {
 		url.query = params;
 	for(var key in url.query) {
 		var value = url.query[key];
-		if(typeof value == 'string' && (value[0]=='{' || value[0]=='[' || value[0]=='"' ))
+		if(typeof value == 'string' && (value[0]=='{' || value[0]=='[' || value[0]=='"' )) try {
 			url.query[key] = JSON.parse(value);
+		}
+		catch(err) {
+			console.error('url query JSON.parse ERROR', err);
+		}
 	}
 	return url;
 }
 
 function createServer(ip, port, requestHandler, redirectHandler) {
-	var isOpenshift = process.env.OPENSHIFT_NODEJS_IP!=null;
 	var httpServer = http.createServer(function(req, resp) {
 		// parse request:
 		var params = {};
@@ -162,7 +165,7 @@ function createServer(ip, port, requestHandler, redirectHandler) {
 		});
 	});
 	httpServer.listen(port, ip);
-	console.log('Server listening at', ip, port);
+	console.log('Server listening at', ip+':'+port);
 	return httpServer;
 }
 
@@ -192,19 +195,14 @@ function onShutdown(callback) {
 	var shutdown = function() {
 		if(callback)
 			callback();
-		process.exit( )
+		process.exit();
 	}
-	if(process.platform==='win32') {
-		var tty = require("tty");
-		process.openStdin().on("keypress", function(chunk, key) { // Windows
-			if(key && key.name === "c" && key.ctrl)
-				return shutdown();
-		})
-	}
-	else {
-		process.on( 'SIGINT', shutdown);
-		process.on( 'SIGTERM', shutdown);
-	}
+	process.on( 'SIGINT', shutdown);
+	process.on( 'SIGTERM', shutdown);
+}
+
+function onInfo(callback) {
+	process.on( 'SIGUSR2', callback);
 }
 
 module.exports = {
@@ -214,4 +212,5 @@ module.exports = {
 	parseArgs: parseArgs,
 	parseUrl: parseUrl,
 	onShutdown: onShutdown,
+	onInfo: onInfo
 }

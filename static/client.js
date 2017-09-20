@@ -78,7 +78,9 @@ function ProductionController(selector, unitColor, callback) {
 	var element=document.querySelector(selector);
 
 	this.setProduction = function(id, progress) {
-		this.progress = progress = progress ? progress : 0.0;
+		progress = progress ? progress/MD.Unit[id].cost : 0.0;
+		if(progress > 1.0)
+			progress = 1.0;
 		for(var i=0, end=element.children.length; i<end; ++i) {
 			var child = element.children[i];
 			var toolId = child.dataset.id;
@@ -96,10 +98,10 @@ function ProductionController(selector, unitColor, callback) {
 
 				dc.lineWidth = canvas.width*0.1;
 				dc.beginPath();
-				dc.strokeStyle='rgba(255,255,255,1.0)';
+				dc.strokeStyle='white';
 				dc.arc(cx,cy, canvas.width*0.45, 1.5*Math.PI, 1.5*Math.PI+2*Math.PI*progress, false);
 				dc.stroke();
-				dc.strokeStyle='rgba(255,255,255,0.5)';
+				dc.strokeStyle='rgba(255,255,255,0.33)';
 				dc.arc(cx,cy, canvas.width*0.45, 1.5*Math.PI+2*Math.PI*progress, 1.5*Math.PI+2*Math.PI, false);
 				dc.closePath();
 				dc.stroke();
@@ -347,7 +349,7 @@ client = {
 	},
 
 	toggleToolbar: function(id) {
-		if(id==this.currentToolbar)
+		if(id=='main' && id==this.currentToolbar)
 			return;
 		this.currentToolbar = id;
 		eludi.switchToSibling('toolbar_'+id, '');
@@ -508,8 +510,10 @@ client = {
 		if(this.state!='input')
 			return;
 		this.cursor = { x:cellX, y:cellY };
-		if(this.selUnit && this.isSelected(cellX, cellY) && !this.selUnit.origin)
+		if(this.selUnit && this.isSelected(cellX, cellY) && !this.selUnit.origin) {
+			this.toggleToolbar('main');
 			return this.moveUnit(this.selUnit, cellX, cellY);
+		}
 
 		var tile = this.mapView.get(cellX, cellY);
 		if(!tile)
@@ -605,31 +609,6 @@ client = {
 			&& pos.y >= this.vp.y + delta
 			&& pos.x < this.vp.x + this.vp.width - delta
 			&& pos.y < this.vp.y + this.vp.height - delta;
-	},
-
-	unitsUpdate: function(data) {
-		for(var i=0; i<this.mapView.data.length; ++i) {
-			var tile = this.mapView.data[i];
-			delete tile.unit;
-			delete tile.party;
-		}
-
-		this.units = { };
-		for(var i=0; i<data.units.length; ++i) {
-			var unit = data.units[i];
-			var tile = this.mapView.get(unit.x, unit.y);
-			tile.unit = this.units[unit.id] = new Unit(unit);
-		}
-		if(this.selUnit)
-			this.selectUnit(this.units[this.selUnit.id]);
-
-		for(var i=0; i<data.objectives.length; ++i) {
-			var obj = data.objectives[i];
-			this.mapView.get(obj.x, obj.y).party = obj.party;
-		}
-
-		this.fov = new MatrixHex(data.fov);
-		this.redrawMap = true;
 	},
 
 	selectUnit: function(unit) {
@@ -877,12 +856,49 @@ client = {
 	},
 
 	handleSituation: function(data) {
-		this.unitsUpdate(data);
+		for(var i=0; i<this.mapView.data.length; ++i) {
+			var tile = this.mapView.data[i];
+			delete tile.unit;
+			delete tile.party;
+			delete tile.production;
+			delete tile.progress;
+		}
+
+		this.units = { };
+		for(var i=0; i<data.units.length; ++i) {
+			var unit = data.units[i];
+			var tile = this.mapView.get(unit.x, unit.y);
+			tile.unit = this.units[unit.id] = new Unit(unit);
+		}
+		if(this.selUnit)
+			this.selectUnit(this.units[this.selUnit.id]);
+
+		for(var i=0; i<data.objectives.length; ++i) {
+			var obj = data.objectives[i];
+			var tile = this.mapView.get(obj.x, obj.y);
+			tile.party = obj.party;
+			if(obj.production) {
+				tile.production = obj.production;
+				tile.progress = obj.progress;
+			}
+		}
+
+		this.fov = new MatrixHex(data.fov);
+
+		this.redrawMap = true;
 		this.turn = data.turn;
 		if(data.state=='running')
 			this.switchState(data.ordersReceived ? 'waiting' : 'input');
 		else
 			this.switchState(data.state);
+	},
+
+	updateProduction: function(numTurns) {
+		for(var i=0; i<this.mapView.data.length; ++i) {
+			var tile = this.mapView.data[i];
+			if(tile.production)
+				tile.progress += numTurns;
+		}
 	},
 
 	nextSimEvent: function() {
@@ -942,16 +958,19 @@ client = {
 			});
 			return true;
 
-		case 'capture':
+		case 'capture': {
 			console.log('event', evt);
-			this.mapView.get(evt.x, evt.y).party = evt.party;
+			var tile = this.mapView.get(evt.x, evt.y);
+			tile.party = evt.party;
+			tile.production = 'inf';
+			tile.progress = -1;
 			this.notify(MD.Party[evt.party].name+' captures objective at ('+evt.x+','+evt.y+')', 4.0);
 
 			if(!this.isInsideViewport(evt, 1))
 				this.viewCenter(evt.x, evt.y);
 			this.redrawMap = true;
 			return false;
-
+		}
 		case 'gameOver': {
 			console.log('event', evt);
 			this.switchState('over');
@@ -962,6 +981,7 @@ client = {
 		}
 		case 'turn':
 			console.log('event', evt);
+			this.updateProduction(evt.turn - this.turn);
 			this.turn = evt.turn;
 			return false;
 		
@@ -982,6 +1002,7 @@ client = {
 			return false;
 
 		case 'production':
+		case 'productionBlocked':
 		case 'blocked':
 			// todo
 		default:
@@ -994,6 +1015,7 @@ client = {
 		if(state==this.state || this.state=='over')
 			return;
 
+		this.toggleToolbar('main');
 		switch(state) {
 		case 'input': {
 			var selUnitId = this.selUnit ? this.selUnit.id : 0;

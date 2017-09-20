@@ -82,6 +82,12 @@ var MD = {
 			medium: 1,
 			cost: 4
 		}
+	},
+	isNavigable: function(terrain, unitType) {
+		if((unitType.medium == MD.GROUND && terrain == MD.WATER)
+			|| (unitType.medium == MD.WATER && terrain != MD.WATER))
+			return false;
+		return true;
 	}
 };
 
