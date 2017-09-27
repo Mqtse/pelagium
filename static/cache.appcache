@@ -5,6 +5,10 @@ CACHE:
 /static/eludi.logo.svg
 /static/scillies.jpg
 /static/pelagium.svg
+/static/favicon.ico
+/static/icon_island256.png
+/static/manifest.json
+/static/infra.js
 
 
 NETWORK:
