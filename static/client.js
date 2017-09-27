@@ -267,7 +267,7 @@ client = {
 			self.handleUIEvent({ type:event.target.dataset.id }); });
 		document.getElementById('btn_menu').addEventListener("click", function(event) {
 			self.handleUIEvent({ type:event.currentTarget.dataset.id }); });
-		if(!document.fullscreenEnabled)
+		if(!document.fullscreenEnabled && !document.webkitFullscreenEnabled)
 			document.querySelector('li[data-id="fullscreen"]').style.display = 'none';
 		this.toolbarProduction = new ProductionController('#toolbar_production', MD.Party[this.party].color,
 			function(unitType) { if(self.cursor) self.handleProductionInput(unitType, self.cursor.x, self.cursor.y); });
@@ -298,6 +298,21 @@ client = {
 			this.redrawMap = true;
 			sim.getSituation(self.party, null, function(data) {
 				self.handleSituation(data);
+				// center view at own units:
+				var cx=0, cy=0, numUnits=0;
+				for(var id in self.units) {
+					var unit = self.units[id];
+					if(unit.party.id!=self.party)
+						continue;
+					cx += unit.x;
+					cy += unit.y;
+					++numUnits;
+				}
+				if(numUnits) {
+					cx /= numUnits;
+					cy /= numUnits;
+					self.viewCenter(Math.round(cx), Math.round(cy));
+				}
 			});
 		});
 		this.update();
@@ -332,12 +347,18 @@ client = {
 	},
 
 	toggleFullScreen: function() {
-		if(!document.fullscreenEnabled)
-			return;
-		if (!document.fullscreenElement)
-			document.documentElement.requestFullscreen();
-		else if(document.exitFullscreen)
-			document.exitFullscreen(); 
+		if(document.fullscreenEnabled) {
+			if (!document.fullscreenElement)
+				document.documentElement.requestFullscreen();
+			else if(document.exitFullscreen)
+				document.exitFullscreen();
+		}
+		else if(document.webkitFullscreenEnabled) {
+			if (!document.webkitFullscreenElement)
+				document.documentElement.webkitRequestFullscreen();
+			else if(document.webkitExitFullscreen)
+				document.webkitExitFullscreen();
+		}
 	},
 
 	toggleMenu: function(onOrOff) {
@@ -397,7 +418,7 @@ client = {
 			}
 			var dx=this.prevX-event.x, dy=this.prevY-event.y;
 			if(this.panning || (Math.pow(dx,2)+Math.pow(dy,2) >= Math.pow(this.cellRadius,2)) ) {
-				this.panning=true;
+				this.panning = true;
 				this.prevX = event.x;
 				this.prevY = event.y;
 				this.viewPan(dx, dy);
@@ -406,8 +427,10 @@ client = {
 		case 'end':
 			if(event.id>1 || !this.pointerEventStartTime) // ignore right mouse button / multi-touch
 				return;
-			else if(this.pinch || this.panning)
+			else if(this.pinch || this.panning) {
 				this.pinch = this.panning = false;
+				this.redrawMap = true;
+			}
 			else
 				this.handleMapInput('click', cellX, cellY);
 			this.pointerEventStartTime=0;

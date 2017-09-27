@@ -196,7 +196,7 @@ eludi = {
 			e.preventDefault();
 
 		var events = [];
-		if(e.type in { 'touchstart':true, 'touchmove':true, 'touchend':true }) {
+		if(e.type in { 'touchstart':true, 'touchmove':true, 'touchend':true, 'touchcancel':true, 'touchleave':true }) {
 			var node = e.target;
 			var offsetX = 0, offsetY=0;
 			while(node && (typeof node.offsetLeft != 'undefined')) {
@@ -215,6 +215,8 @@ eludi = {
 					id = readPointerId(touch.identifier);
 					if(id===undefined)
 						continue;
+					if(type=='cancel' || type=='leave')
+						type = 'end';
 					if(type=='end')
 						delete pointersDown[id];
 				}

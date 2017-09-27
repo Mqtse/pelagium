@@ -54,6 +54,8 @@ function serveStatic(resp, path, basePath) {
 			return 'image/x-icon';
 		case 'svg':
 			return 'image/svg+xml';
+		case 'appcache':
+			return 'text/cache-manifest';
 		default:
 			return console.log('WARNING mime-type unknown for ',fname);
 		}
