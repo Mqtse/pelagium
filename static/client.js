@@ -1064,6 +1064,7 @@ client = {
 			break;
 
 		case 'replay':
+			this.cursor = null;
 			this.btnMain.setMode('pause');
 			this.displayStatus('turn '+this.turn);
 			this.nextSimEvent();

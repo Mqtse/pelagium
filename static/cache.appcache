@@ -2,6 +2,15 @@ CACHE MANIFEST
 #v1
 
 CACHE:
+#/pelagium
+#/static/pelagium.html
+#/static/client.js
+#/static/shared.js
+#/static/infra.js
+#/static/masterdata.js
+
+/static/seedrandom.js
+/static/color.js
 /static/eludi.logo.svg
 /static/scillies.jpg
 /static/pelagium.svg

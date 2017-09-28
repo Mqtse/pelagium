@@ -1,5 +1,5 @@
 if(typeof require !== 'undefined') {
-	var shared = require('./shared');
+	var shared = require('./static/shared');
 	MapHex = shared.MapHex;
 	MatrixHex = shared.MatrixHex;
 	MatrixSparse = shared.MatrixSparse;
@@ -40,9 +40,16 @@ function Sim(params, callback) {
 	}
 
 	/// long polling event listener
-	this.getSimEvents = function(party, params, callback) {
-		this.simEventListeners[party]=callback;
+	this.getSimEvents = function(partyId, params, callback) {
 		this.state='running'; // at least one listener
+		var party = this.parties[partyId];
+		if(!party.events)
+			this.simEventListeners[partyId]=callback;
+		else {
+			callback(party.events);
+			party.events=null;
+			this.simEventListeners[partyId]=null;
+		}
 	}
 
 	this.postOrders = function(party, orders, callback) {
@@ -300,9 +307,16 @@ function Sim(params, callback) {
 	this._dispatchSimEvents = function(events) {
 		if(!events || !events.length)
 			return;
-		for(var key in this.simEventListeners) {
+		for(var key in this.parties) {
+			var party = this.parties[key];
+			party.events = null;
 			var evts = this._filterSimEvents(events, key); // filter events to be dispatched by the listeners' fov:
-			this.simEventListeners[key](evts);
+			if(key in this.simEventListeners) {
+				this.simEventListeners[key](evts);
+				this.simEventListeners[key] = null;
+			}
+			else
+				party.events = evts;
 		}
 		this.simEventCounter += events.length;
 	}

@@ -2,7 +2,7 @@ var qs = require('querystring');
 var fs = require('fs');
 
 var httpUtils = require('./httpUtils');
-var Sim = require('./static/sim');
+var Sim = require('./sim');
 
 var cfg = {
 	host:'0.0.0.0',
