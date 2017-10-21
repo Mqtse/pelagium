@@ -141,7 +141,7 @@ function createServer(ip, port, requestHandler, redirectHandler) {
 							code = redirect.code;
 						redirect = u;
 					}
-					console.log(req.url,'--', code, '->', redirect);
+					console.log(req.method, req.url,'--', code, '-->', redirect);
 					resp.writeHead(code, { 'Location': redirect });
 					return resp.end();
 				}

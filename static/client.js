@@ -1,5 +1,3 @@
-var baseUrl = location.origin + '/pelagium';
-
 //--- animations ---------------------------------------------------
 function AnimationSelected(tStart, unit, callback) {
 	this.transform = function(tNow, transf) {
@@ -11,6 +9,7 @@ function AnimationSelected(tStart, unit, callback) {
 	}
 	this.unit = unit;
 	this.tStart = tStart;
+	this.type = 'selected';
 }
 
 function AnimationMove(tStart, unit, destination, callback, cbData) {
@@ -29,7 +28,7 @@ function AnimationMove(tStart, unit, destination, callback, cbData) {
 				this.dx = Math.sin(angle);
 				this.dy = -Math.cos(angle);
 				this.tStart = tNow;
-				destination.shift();				
+				destination.shift();
 			}
 			else {
 				this.unit.animation = null;
@@ -50,8 +49,9 @@ function AnimationMove(tStart, unit, destination, callback, cbData) {
 	this.dx = Math.sin(angle);
 	this.dy = -Math.cos(angle);
 	this.x = 0;
-	this.y = 0;	
+	this.y = 0;
 	this.tStart = tStart;
+	this.type = 'move';
 }
 
 function AnimationExplode(tStart, unit, callback, cbData) {
@@ -151,95 +151,6 @@ function ProductionController(selector, unitColor, callback) {
 	this.setProduction(); // initializes visualization
 }
 
-// --- SimProxy ----------------------------------------------------
-function SimProxy(params, callback) {
-	this.getSimEvents = function(party, params, callback) {
-		if(party!=this.party)
-			return;
-
-		var url = this.userUrl+'/getSimEvents';
-		var cbPoll = function(data) {
-			if(data)
-				callback(data);
-			setTimeout(function() { http.get(url, params, cbPoll); }, 0);
-		}
-		cbPoll(); // initiate long-polling
-	}
-	this.getTerrain = function(party, params, callback) {
-		http.get(this.userUrl+'/getTerrain', params, function(data) {
-			callback(data);
-		});
-	}
-	this.getSituation = function(party, params, callback) {
-		http.get(this.userUrl+'/getSituation', params, function(data) {
-			callback(data);
-		});
-	}
-	this.postOrders = function(party, commands) {
-		if(party!=this.party)
-			return;
-		http.post(this.userUrl+'/postOrders', { orders:commands });
-	}
-	this.getMatchId = function() { return this.matchId; }
-	this.getUserId = function() { return this.userUrl.substr(this.userUrl.lastIndexOf('/')+1); }
-	this._connect = function(params, callback) {
-		var url = baseUrl;
-		var method = 'post';
-
-		switch(params.cmd) {
-			case 'resume':
-				method = 'get';
-				url += '/' + params.id;
-				break;
-			case 'start':
-				break;
-			case 'join':
-				url += '/' + params.id;
-				break;
-			default:
-				return console.error('invalid or missing command:', params.cmd);
-		}
-		delete params.id;
-
-		var self = this;
-		var handleCredentials = function(data) {
-			self.userUrl = baseUrl + '/' + data.id;
-			if(localStorage)
-				localStorage.pelagium = JSON.stringify({resume:data.id});
-			self.party = data.party;
-			console.log('connected to match', self.matchId, 'party:', data.party, 'id:', data.id);
-			if(callback)
-				callback({ party:data.party }, self);
-		}
-
-		http[method](url, params, function(data, code) {
-			if(code!=200 || !('match' in data)) {
-				var msg = (code==404) ? ('invalid '+params.cmd+' id') : data.error ? data.error : params.cmd + ' failed.';
-				if(params.cmd=='resume' && localStorage)
-					delete localStorage.pelagium;
-				client.modalPopup(msg, ['OK'], function(id) { client.close(); });
-				return console.error('connect failed. code:', code, data.error ? data.error : data);
-			}
-
-			var matchId = self.matchId = data.match;
-			if(data.id && ('party'in data))
-				return handleCredentials(data);
-
-			http.post(baseUrl+'/'+matchId, params, function(data, code) {
-				if(code==200)
-					return handleCredentials(data);
-
-				var msg = 'user registration failed';
-				client.modalPopup(msg, ['OK'], function(id) { client.close(); });
-				console.error(msg, 'code:', code, data.error ? data.error : data);
-			});
-		});
-	}
-
-	this.userUrl = '';
-	this._connect(params, callback);
-}
-
 // --- client ------------------------------------------------------
 client = {
 	init: function(params, sim) {
@@ -285,7 +196,6 @@ client = {
 		this.cursor = null;
 		this.pointerEventStartTime = 0;
 		this.time = 0;
-		this.fps = 0;
 		this.tLastUpdate = new Date()/1000.0;
 		this.orders = [];
 		this.simEvents = [];
@@ -533,7 +443,9 @@ client = {
 		if(this.state!='input')
 			return;
 		this.cursor = { x:cellX, y:cellY };
-		if(this.selUnit && this.isSelected(cellX, cellY) && !this.selUnit.origin) {
+		if(this.selUnit && this.isSelected(cellX, cellY) && !this.selUnit.origin
+			&& !(this.selUnit.animation && this.selUnit.animation.type=='move'))
+		{
 			this.toggleToolbar('main');
 			return this.moveUnit(this.selUnit, cellX, cellY);
 		}
@@ -541,15 +453,7 @@ client = {
 		var tile = this.mapView.get(cellX, cellY);
 		if(!tile)
 			return;
-		for(var key in tile) {
-			var value = tile[key];
-			if(key=='terrain')
-				this.cursor[key] = (value<0)? MD.Terrain[0].name : MD.Terrain[value].name;
-			else if(key=='unit' && value!==null)
-				this.cursor[key] = { type:value.type.id, party:value.party.name };
-			else if(key!='color')
-				this.cursor[key] = value;
-		}
+
 		if(tile.terrain == MD.OBJ && tile.party == this.party)
 			this.toggleToolbar('production');
 		else
@@ -560,7 +464,14 @@ client = {
 		else
 			this.selectUnit(tile.unit);
 
-		this.displayStatus(JSON.stringify(this.cursor));
+		var msg = '';
+		if(tile.party)
+			msg += MD.Party[tile.party].name+' ';
+		msg += MD.Terrain[tile.terrain].name;
+		if(tile.unit)
+			msg += ', ' + tile.unit.party.name + ' ' + tile.unit.type.name;
+
+		this.displayStatus(msg);
 		this.draw(true);
 	},
 
@@ -858,12 +769,6 @@ client = {
 		if((this.state=='input' || this.state=='replay')) {
 			var deltaT = Math.min(tNow-this.tLastUpdate, 0.1);
 			this.time += deltaT;
-		}
-
-		++this.fps;
-		if(Math.floor(tNow)!=Math.floor(this.tLastUpdate)) {
-			//this.displayStatus('fps:'+this.fps);
-			this.fps=0;
 		}
 
 		this.tLastUpdate = tNow;

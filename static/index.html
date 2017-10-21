@@ -124,19 +124,19 @@ app = {
 	start: function() {
 		if(!navigator.onLine)
 			return alert('server connection required for starting a new game');
-		eludi.openUrl('/static/pelagium.html?cmd=start', {}, false);
+		eludi.openUrl('/static/pelagium.html', {cmd:'start'}, false);
 	},
 	resume: function() {
 		var id = document.getElementById("resume_id").value.toUpperCase();
 		if(id.length)
-			eludi.openUrl('/static/pelagium.html?cmd=resume&id='+id, {}, false);
+			eludi.openUrl('/static/pelagium.html', {cmd:'resume', id:id}, false);
 	},
 	join: function() {
 		if(!navigator.onLine)
 			return alert('server connection required for joining a game');
 		var id = document.getElementById("join_id").value.toUpperCase();
 		if(id.length)
-			eludi.openUrl('/static/pelagium.html?cmd=join&id='+id, {}, false);
+			eludi.openUrl('/static/pelagium.html', {cmd:'join', id:id}, false);
 	},
 	close: function() {
 		window.close();
@@ -175,6 +175,6 @@ app = {
 			></div
 
 		></div
-		><img id="logo" src="/static/eludi.logo.svg" onclick="document.location.href='https://eludi.net';"
+		><img id="logo" src="/static/eludi.logo.svg" onclick="document.location.href='https://eludi.net';" alt="eludi.net"
 	/></body>
 </html>

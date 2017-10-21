@@ -84,7 +84,7 @@ http = {
 		return s;
 	},
 
-	request: function(method, url, params, callback) {
+	request: function(method, url, params, callback, self) {
 		var xhr = new XMLHttpRequest();
 		try {
 			xhr.open( method, url, true );
@@ -95,24 +95,26 @@ http = {
 				var response = (xhr.status==-1 || xhr.status==204) ? null
 					: (xhr.contentType=='application/json' || (('getResponseHeader' in xhr) && xhr.getResponseHeader('Content-Type')=='application/json'))
 					? JSON.parse(xhr.responseText) : xhr.responseText;
-				callback( response, status );
+				callback.call(self, response, status );
 			}
 			xhr.send( (params && method=='POST') ? this.encodeURI(params) : null );
 		} catch(error) {
 			window.console && console.error(error);
+			if(callback)
+				callback.call(self, error, -2);
 			return false;
 		}
 		return xhr;
 	},
 
-	get: function(url, params, callback) {
+	get: function(url, params, callback, self) {
 		if(params)
 			url+='?'+this.encodeURI(params);
-		return this.request('GET', url, null, callback);
+		return this.request('GET', url, null, callback, self);
 	},
 
-	post: function(url, params, callback) {
-		return this.request('POST', url, params, callback);
+	post: function(url, params, callback, self) {
+		return this.request('POST', url, params, callback, self);
 	}
 }
 

@@ -1,13 +1,14 @@
 CACHE MANIFEST
-#v1
+#v0.6.15
 
 CACHE:
-#/pelagium
-#/static/pelagium.html
-#/static/client.js
-#/static/shared.js
-#/static/infra.js
-#/static/masterdata.js
+/pelagium
+/static/pelagium.html
+/static/sim_proxy.js
+/static/client.js
+/static/shared.js
+/static/infra.js
+/static/masterdata.js
 
 /static/seedrandom.js
 /static/color.js

@@ -11,6 +11,7 @@ function Sim(params, callback) {
 	this.getTerrain = function(party, params, callback) {
 		var terrain = this.map.getTerrain(params.page ? params.page : 0, true);
 		callback(terrain);
+		return false;
 	}
 
 	/// military situation, as obvious to a party, primary means of synchronizing clients
@@ -37,26 +38,27 @@ function Sim(params, callback) {
 		}
 		callback({ units:units, objectives:objs, fov:fov.serialize(true),
 			state:this.state, turn:this.turn, ordersReceived:ordersReceived });
+		return false;
 	}
 
 	/// long polling event listener
 	this.getSimEvents = function(partyId, params, callback) {
-		this.state='running'; // at least one listener
 		var party = this.parties[partyId];
 		if(!party.events)
 			this.simEventListeners[partyId]=callback;
 		else {
 			callback(party.events);
 			party.events=null;
-			this.simEventListeners[partyId]=null;
+			delete this.simEventListeners[partyId];
 		}
+		return false;
 	}
 
 	this.postOrders = function(party, orders, callback) {
 		if(this.state!='running') {
 			if(callback)
 				callback('Locked', 423);
-			return;
+			return false;
 		}
 
 		if(typeof orders=='object' && !Array.isArray(orders))
@@ -68,22 +70,24 @@ function Sim(params, callback) {
 			console.error('postOrders JSON.parse', e.name+':', e.message);
 			if(callback)
 				callback('invalid orders format', 400);
-			return;
+			return false;
 		}
 		if(!orders)
-			return;
+			return false;
 
 		if(!this._validateOrders(party, orders)) {
 			if(callback)
 				callback('orders semantically invalid', 400);
-			return;
+			return false;
 		}
 		this.parties[party].orders = this._atomizeOrders(orders);
+		this.lastUpdateTime = new Date()/1000.0;
 
 		if(this._isReadyForEvaluation())
 			this._evaluateSimEvents();
 		if(callback)
 			callback();
+		return true;
 	}
 
 	this._isReadyForEvaluation = function() {
@@ -147,7 +151,7 @@ function Sim(params, callback) {
 			if(!orderValid) {
 				console.error('invalid order', order);
 				delete orders[i];
-				++numInvalidOrders;				
+				++numInvalidOrders;
 			}
 		}
 		return numInvalidOrders < orders.length;
@@ -293,7 +297,7 @@ function Sim(params, callback) {
 
 		var self = this;
 		++this.turn;
-		this.turnStartTime = new Date()/1000.0;
+		this.turnStartTime = this.lastUpdateTime = new Date()/1000.0;
 		setTimeout(function(turn) {
 			if(self.turn!=turn)
 				return;
@@ -313,7 +317,7 @@ function Sim(params, callback) {
 			var evts = this._filterSimEvents(events, key); // filter events to be dispatched by the listeners' fov:
 			if(key in this.simEventListeners) {
 				this.simEventListeners[key](evts);
-				this.simEventListeners[key] = null;
+				delete this.simEventListeners[key];
 			}
 			else
 				party.events = evts;
@@ -441,6 +445,7 @@ function Sim(params, callback) {
 			devMode: this.devMode,
 			turn: this.turn,
 			turnStartTime: this.turnStartTime,
+			lastUpdateTime: this.lastUpdateTime,
 			simEventCounter: this.simEventCounter,
 			map: this.map.serialize(),
 			parties: {},
@@ -458,6 +463,7 @@ function Sim(params, callback) {
 		this.devMode = data.devMode;
 		this.turn = data.turn;
 		this.turnStartTime = data.turnStartTime;
+		this.lastUpdateTime = data.lastUpdateTime;
 		this.simEventCounter = data.simEventCounter;
 		this.map = new MapHex(data.map);
 		this.parties = data.parties;
@@ -552,7 +558,8 @@ function Sim(params, callback) {
 		this.parties = this._initStats(scenario);
 		this.simEventCounter = 0;
 		this.turn = 1;
-		this.turnStartTime = new Date()/1000.0;
+		this.turnStartTime = this.lastUpdateTime = new Date()/1000.0;
+		this.state = 'running';
 	}
 
 	this.state = 'init';
