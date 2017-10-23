@@ -466,8 +466,11 @@ client = {
 		if(tile.party)
 			msg += MD.Party[tile.party].name+' ';
 		msg += MD.Terrain[tile.terrain].name;
-		if(tile.unit)
+		if(tile.unit) {
 			msg += ', ' + tile.unit.party.name + ' ' + tile.unit.type.name;
+			if(tile.unit.origin)
+				msg += ', moved';
+		}
 
 		this.displayStatus(msg);
 		this.draw(true);
@@ -601,8 +604,8 @@ client = {
 		this.orders = cachedOrders.orders;
 		this.orders.forEach(function(order, i) {
 			if(order.type=='production') {
-				var tile = this.mapView.get(x, y);
-				if(!tile || tile.terrain!=MD.OBJ || tile.party != this.party || !(unitType in MD.Unit))
+				var tile = this.mapView.get(order.x, order.y);
+				if(!tile || tile.terrain!=MD.OBJ || tile.party != this.party || !(order.unit in MD.Unit))
 					return;
 				tile.production = order.unit;
 				tile.progress = 0;
