@@ -54,28 +54,17 @@ function Sim(params, callback) {
 		return false;
 	}
 
-	this.postOrders = function(party, orders, callback) {
+	this.postOrders = function(party, data, callback) {
 		if(this.state!='running') {
 			if(callback)
 				callback('Locked', 423);
 			return false;
 		}
 
-		if(typeof orders=='object' && !Array.isArray(orders))
-			orders = orders.orders;
-		if(typeof orders=='string') try {
-			orders = JSON.parse(orders);
-		}
-		catch(e) {
-			console.error('postOrders JSON.parse', e.name+':', e.message);
-			if(callback)
-				callback('invalid orders format', 400);
-			return false;
-		}
-		if(!orders)
-			return false;
+		var turn = data.turn;
+		var orders = data.orders;
 
-		if(!this._validateOrders(party, orders)) {
+		if(!this._validateOrders(party, orders, turn)) {
 			if(callback)
 				callback('orders semantically invalid', 400);
 			return false;
@@ -103,8 +92,8 @@ function Sim(params, callback) {
 		return true;
 	}
 
-	this._validateOrders = function(party, orders) {
-		if(!(party in this.parties) || this.parties[party].orders)
+	this._validateOrders = function(party, orders, turn) {
+		if(!(party in this.parties) || this.parties[party].orders || turn!=this.turn)
 			return false;
 		if(!orders.length)
 			return true;

@@ -38,7 +38,8 @@ function ServerPelagium(topLevelPath, persistence) {
 			return [ 400, 'invalid match parameters' ];
 	
 		this.matches.set(id, { id:id, sim:sim, users:new Map() });
-		++this.matchCount;
+		++this.totalMatchCount;
+		++this.currMatchCount;
 		return [ 200, { match:id } ];
 	}
 	this.matchInsert = function(id, data) {
@@ -61,7 +62,8 @@ function ServerPelagium(topLevelPath, persistence) {
 		match.users.forEach(function(user, id) {
 			this.matches.set( id, match );
 		}, this);
-		++this.matchCount;
+		++this.totalMatchCount;
+		++this.currMatchCount;
 		return true;
 	}
 	this.matchDelete = function(id) {
@@ -74,6 +76,7 @@ function ServerPelagium(topLevelPath, persistence) {
 		this.matches.delete(id);
 		if(this.storage)
 			this.storage.removeItem(id);
+		--this.currMatchCount;
 	}
 	this.matchSerialize = function(id) {
 		var match = this.matches.get(id);
@@ -128,11 +131,14 @@ function ServerPelagium(topLevelPath, persistence) {
 	}
 
 	this.usage = function() {
+		var upMins = Math.floor(((new Date())-this.startTime)/1000/60);
+		var upTime = Math.floor(upMins/60/24)+'d '+(Math.floor(upMins/60)%24)+'h '+(upMins%60)+'m'
 		return {
-			matchesRunning: this.matches.size,
-			matchesTotal: this.matchCount,
+			matchesRunning: this.currMatchCount,
+			matchesTotal: this.totalMatchCount,
+			estimatedDiskUsage: this.currMatchCount*3, // 3kB per match
 			startTime: this.startTime.toISOString(),
-			upTime: (new Date())-this.startTime
+			upTime:upTime 
 		}
 	}
 
@@ -195,7 +201,8 @@ function ServerPelagium(topLevelPath, persistence) {
 
 	this.path = topLevelPath;
 	this.matches = new Map();
-	this.matchCount = 0;
+	this.totalMatchCount = 0;
+	this.currMatchCount = 0;
 	this.startTime = new Date();
 	if(persistence) {
 		this.storage = new Storage(persistence);
@@ -218,7 +225,7 @@ var server = httpUtils.createServer(cfg.host, cfg.port, function(req, resp, url)
 		if(url.path.length==2)
 			return httpUtils.serveStatic(resp, url.path[1], __dirname+'/'+url.path[0]);
 	case 'info':
-		return httpUtils.respond(resp, 200, { usage:server.usage() });
+		return server.usage(req, resp);
 	default:
 		httpUtils.respond(resp, 404, "Not Found");
 	}
@@ -226,15 +233,17 @@ var server = httpUtils.createServer(cfg.host, cfg.port, function(req, resp, url)
 	if(!url.path.length)
 		return { path:[ serverPelagium.path ] };
 });
-server.usage = function() {
-	var data = {
-		pelagium: serverPelagium.usage(),
-		memoryUsage: process.memoryUsage()
-	}
-	if('cpuUsage' in process)
-		data.cpuUsage = process.cpuUsage()
-	return data;
+server.usage = function(req, resp) {
+	this.getConnections(function(err, count) {
+		var data = {
+			pelagium: serverPelagium.usage(),
+			memoryUsage: process.memoryUsage(),
+			connections: count
+		}
+		if('cpuUsage' in process)
+			data.cpuUsage = process.cpuUsage()
+		httpUtils.respond(resp, 200, data);
+	});
 }
 
 httpUtils.onShutdown(function() { console.log( "shutting down." ); });
-httpUtils.onInfo(function() { console.log(server.usage()); });

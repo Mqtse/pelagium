@@ -94,17 +94,22 @@ function SimProxy(params, callback) {
 			}
 		}, this);
 	}
-	this.postOrders = function(party, orders) {
+	this.postOrders = function(party, orders, turn) {
 		if(party!=this.party)
 			return;
 		var key = '/postOrders';
-		var data = { orders:orders };
+		var data = { orders:orders, turn:turn };
 		http.post(this.userUrl+key, data, function(data, code) {
 			if(code==200 || code==204)
 				return this.cache.removeItem(key);
+			else if(code>=400 && code<500) {
+				console.warn('orders rejected.', code, data);
+				client.displayStatus('orders rejected.');
+				return this.cache.removeItem(key);
+			}
 			this.cache.setItem(key, orders);
 			console.warn('posting orders to server failed. Orders are cached locally.')
-			setTimeout(function(self) { self.postOrders(party, orders); }, retryInterval, this);
+			setTimeout(function(self) { self.postOrders(party, orders, turn); }, retryInterval, this);
 		}, this);
 	}
 	this.getMatchId = function() { return this.matchId; }

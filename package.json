@@ -1,7 +1,7 @@
 {
 	"name":"pelagium",
 	"description": "multiplayer online turn-based strategy game in an island world",
-	"version":"0.6.15",
+	"version":"0.6.19",
 	"scripts": {
 		"start": "node server.js --devMode 0 --persistence persistence"
 	},

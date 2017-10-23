@@ -200,6 +200,7 @@ client = {
 		this.orders = [];
 		this.simEvents = [];
 		this.turn = 1;
+		this.cache = new Cache('pelagium/client', this.sim.getUserId());
 
 		sim.getSimEvents(this.party, null, function(data) { self.handleSimEvents(data); });
 		sim.getTerrain(this.party, null, function(data) {
@@ -430,10 +431,7 @@ client = {
 		if(!tile || tile.terrain!=MD.OBJ || tile.party != this.party || tile.production==unitType || !(unitType in MD.Unit))
 			return;
 
-		var order = { type:'production', unit:unitType, x:x, y:y };
-		console.log('order', order);
-		this.orders.push(order);
-
+		this.addOrder({ type:'production', unit:unitType, x:x, y:y });
 		tile.production = unitType;
 		tile.progress = 0;
 		this.toolbarProduction.setProduction(unitType, 0.0);
@@ -572,11 +570,18 @@ client = {
 		}
 		return false;
 	},
+
+	addOrder: function(order) {
+		this.orders.push(order);
+		this.cache.setItem('/orders', { turn:this.turn, orders:this.orders });
+		console.log('order', order);
+	},
 	dispatchOrders: function() {
 		if(this.state!='input')
 			return;
-		this.sim.postOrders(this.party, this.orders);
-		this.orders = []; // better keep until acknowledged by events?
+		this.sim.postOrders(this.party, this.orders, this.turn);
+		this.cache.removeItem('/orders');
+		this.orders = [];
 		for(var id in this.units) {
 			var unit = this.units[id];
 			if(!unit.origin)
@@ -587,12 +592,33 @@ client = {
 		}
 		this.switchState('waiting');
 	},
+	restoreOrders: function() {
+		var cachedOrders = this.cache.getItem('/orders');
+		if(!cachedOrders)
+			return;
+		if(cachedOrders.turn != this.turn)
+			return this.cache.removeItem('/orders');
+		this.orders = cachedOrders.orders;
+		this.orders.forEach(function(order, i) {
+			if(order.type=='production') {
+				var tile = this.mapView.get(x, y);
+				if(!tile || tile.terrain!=MD.OBJ || tile.party != this.party || !(unitType in MD.Unit))
+					return;
+				tile.production = order.unit;
+				tile.progress = 0;
+			}
+			else if(order.type=='move') {
+				var unit = this.mapView.get(order.from_x, order.from_y).unit;
+				if(!unit || unit.id != order.unit || this.party != unit.party.id)
+					return;
+				this.displayUnitDestination(unit, order);
+			}
+		}, this);
+	},
 
 	moveUnit: function(unit, x, y) {
-		var order = { type:'move', unit:unit.id,
-			from_x:unit.x, from_y:unit.y, to_x:x, to_y:y };
-		console.log('order', order);		
-		this.orders.push(order); 
+		var order = { type:'move', unit:unit.id, from_x:unit.x, from_y:unit.y, to_x:x, to_y:y };
+		this.addOrder(order);
 
 		this.selection = this.selUnit = null;
 
@@ -600,12 +626,15 @@ client = {
 		var self = this;
 		var path = unit.getPath(this.mapView, x,y);
 		unit.animation = new AnimationMove(this.time, unit, path, function(unit, order) {
-			delete self.mapView.get(order.from_x, order.from_y).unit;
-			unit.origin = { x:unit.x, y:unit.y };
-			unit.x = x;
-			unit.y = y;
-			self.mapView.get(x, y).unit = unit;
+			self.displayUnitDestination(unit, order);
 		}, order);
+	},
+	displayUnitDestination: function(unit, order) {
+		delete this.mapView.get(order.from_x, order.from_y).unit;
+		unit.origin = { x:unit.x, y:unit.y };
+		unit.x = order.to_x;
+		unit.y = order.to_y;
+		this.mapView.get(order.to_x, order.to_y).unit = unit;
 	},
 
 	surrender: function() {
@@ -815,6 +844,8 @@ client = {
 
 		this.redrawMap = true;
 		this.turn = data.turn;
+		this.restoreOrders();
+
 		if(data.state=='running')
 			this.switchState(data.ordersReceived ? 'waiting' : 'input');
 		else

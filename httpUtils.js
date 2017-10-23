@@ -192,7 +192,6 @@ function parseArgs(args, settings) {
 	return true;
 }
 
-
 function onShutdown(callback) {
 	var shutdown = function() {
 		if(callback)
@@ -203,16 +202,11 @@ function onShutdown(callback) {
 	process.on( 'SIGTERM', shutdown);
 }
 
-function onInfo(callback) {
-	process.on( 'SIGUSR2', callback);
-}
-
 module.exports = {
 	respond: respond,
 	serveStatic: serveStatic,
 	createServer: createServer,
 	parseArgs: parseArgs,
 	parseUrl: parseUrl,
-	onShutdown: onShutdown,
-	onInfo: onInfo
+	onShutdown: onShutdown
 }
