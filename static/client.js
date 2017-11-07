@@ -74,6 +74,31 @@ function AnimationExplode(tStart, unit, callback, cbData) {
 	this.tStart = tStart;
 }
 
+function AnimationSupport(tStart, unit, destination, callback, cbData) {
+	var vel = 2.0;
+	this.transform = function(tNow, transf) {
+		var deltaT = tNow - this.tStart;
+		if(deltaT*vel >= this.distance) {
+			this.unit.animation = null;
+			if(callback)
+				callback(this.unit, cbData);
+			return;
+		}
+		if(deltaT > 0.5*this.distance/vel)
+			deltaT = 0.5*this.distance/vel - deltaT;
+		transf.x = this.dx * deltaT * vel;
+		transf.y = this.dy * deltaT * vel;
+	}
+	this.unit = unit;
+	var dest = destination;
+	this.distance = 0.7;
+	var angle = MatrixHex.angleRad(unit, dest);
+	this.dx = Math.sin(angle);
+	this.dy = -Math.cos(angle);
+	this.tStart = tStart;
+	this.type = 'support';
+}
+
 function ProductionController(selector, unitColor, callback) {
 	var element=document.querySelector(selector);
 
@@ -413,8 +438,8 @@ client = {
 			return this.toggleFullScreen();
 		case "suspend":
 			return this.close(true);
-		case "surrender":
-			return this.surrender();
+		case "capitulate":
+			return this.capitulate();
 		case "joinCredentials":
 			return this.modalPopup('join id: '+this.sim.getMatchId(), ['OK']);
 		case 'toggleMenu':
@@ -640,14 +665,14 @@ client = {
 		this.mapView.get(order.to_x, order.to_y).unit = unit;
 	},
 
-	surrender: function() {
+	capitulate: function() {
 		if(this.state == 'over' || this.state=='init')
 			return;
 		var self = this;
-		this.modalPopup("really surrender?",["yes", "no"], function(result){
+		this.modalPopup("really surrender?", ["yes", "no"], function(result){
 			if(result==1)
 				return;
-			self.orders = [{ type:'surrender', party:self.party }];
+			self.orders = [{ type:'capitulate', party:self.party }];
 			self.state='input';
 			self.dispatchOrders();
 			self.switchState('over');
@@ -880,7 +905,8 @@ client = {
 	applyEvent: function(evt) {
 		var self = this;
 		switch(evt.type) {
-		case 'move':
+		case 'retreat':
+		case 'move': {
 			console.log('event', evt);
 			var unit = this.units[evt.unit];
 			if(!unit)
@@ -888,6 +914,9 @@ client = {
 			unit.x = evt.from_x;
 			unit.y = evt.from_y;
 
+			if(evt.type=='retreat')
+				this.displayStatus(MD.Party[unit.party.id].name+' '+unit.type.name+' retreats');
+			
 			if(!this.isInsideViewport(unit, 2))
 				this.viewCenter(unit.x, unit.y);
 
@@ -900,26 +929,40 @@ client = {
 					self.nextSimEvent();
 				}, evt);
 			return true;
-
-		case 'combat':
+		}
+		case 'support': {
+			console.log('event', evt);
+			var unit = this.units[evt.unit];
+			if(!unit)
+				break;
+			unit.animation = new AnimationSupport(this.time, unit, evt, function(unit) {
+				self.nextSimEvent();
+			});
+			return true;
+		}
+		case 'combat': {
 			console.log('event', evt);
 			var winner = this.units[evt.winner];
 			if(winner)
 				this.notify(MD.Party[winner.party.id].name+' '+winner.type.name+' prevails at ('+evt.x+','+evt.y+')', 4.0);
-			var looser = this.units[evt.looser];
-			if(!looser)
-				break;
-			if(looser == this.selUnit)
-				this.selUnit = null;
-
 			if(!this.isInsideViewport(evt, 1))
 				this.viewCenter(evt.x, evt.y);
-			looser.animation = new AnimationExplode(this.time, looser, function(unit) {
-				looser.state = 'dead';
+			return false;
+		}
+		case 'surrender': {
+			console.log('event', evt);
+			var unit = this.units[evt.unit];
+			if(!unit)
+				break;
+			if(unit == this.selUnit)
+				this.selUnit = null;
+
+			unit.animation = new AnimationExplode(this.time, unit, function(unit) {
+				unit.state = 'dead';
 				self.nextSimEvent();
 			});
 			return true;
-
+		}
 		case 'capture': {
 			console.log('event', evt);
 			var tile = this.mapView.get(evt.x, evt.y);
@@ -941,20 +984,20 @@ client = {
 			this.modalPopup(msg, ["OK"], function() { self.close(); } );
 			return false;
 		}
-		case 'turn':
+		case 'turn': {
 			console.log('event', evt);
 			this.updateProduction(evt.turn - this.turn);
 			this.turn = evt.turn;
 			return false;
-		
-		case 'contact':
+		}
+		case 'contact': {
 			console.log('event', evt);
 			var tile = this.mapView.get(evt.x, evt.y);
 			tile.unit = this.units[evt.unit.id] = new Unit(evt.unit);
 			this.redrawMap = true;
 			return false;
-
-		case 'contactLost':
+		}
+		case 'contactLost': {
 			console.log('event', evt);
 			var tile = this.mapView.get(evt.x, evt.y);
 			if(tile.unit && tile.unit.id === evt.unit.id)
@@ -962,7 +1005,8 @@ client = {
 			delete this.units[evt.unit.id];
 			this.redrawMap = true;
 			return false;
-
+		}
+		case 'capitulate':
 		case 'production':
 		case 'productionBlocked':
 		case 'blocked':

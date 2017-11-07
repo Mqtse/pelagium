@@ -15,21 +15,26 @@ function Sim(params, callback) {
 	}
 
 	/// military situation, as obvious to a party, primary means of synchronizing clients
-	this.getSituation = function(party, params, callback) {
+	this.getSituation = function(partyId, params, callback) {
 		var pageSz = this.map.pageSz;
-		var fov = party ? this.parties[party].fov : null;
+		var party = this.parties[partyId];
+		var fov = party.fov;
 		var units=[], objs=[];
-		var ordersReceived = this.parties[party].orders!==null;
+		var ordersReceived = party.orders!==null;
 
 		for(var y=0; y!=pageSz; ++y) for(var x=0; x!=pageSz; ++x) {
 			var tile = this.map.get(x,y);
-			if(fov && fov.get(x,y)===0)
-				continue; // out of sight
+			if(fov && fov.get(x,y)===0) {  // out of sight
+				if(tile.terrain==MD.OBJ && tile.id in party.knownObjectives)
+					objs.push({x:x, y:y, party:party.knownObjectives[tile.id]});
+				continue;
+			}
 			if(tile.unit)
 				units.push(tile.unit.serialize());
-			if(tile.party) {
+			if(tile.terrain==MD.OBJ && tile.party) {
+				party.knownObjectives[tile.id] = tile.party;
 				var obj = {x:x, y:y, party:tile.party};
-				if(tile.party == party) {
+				if(tile.party == partyId) {
 					obj.production = tile.production;
 					obj.progress = tile.progress;
 				}
@@ -124,7 +129,7 @@ function Sim(params, callback) {
 					orderValid = true;
 				break;
 			}
-			case 'surrender':
+			case 'capitulate':
 				if(order.party == party)
 					orderValid = true
 				break;
@@ -233,7 +238,7 @@ function Sim(params, callback) {
 			case 'move': {
 				var unit = this.map.get(order.from_x, order.from_y).unit;
 				if( !this.map.unitMove(unit, { x:order.to_x, y:order.to_y }, events) ) {
-					console.error('invalid move order', order);
+					console.error('move failed', order);
 					continue;
 				}
 				events.push(order);
@@ -242,7 +247,7 @@ function Sim(params, callback) {
 
 				var dest = this.map.get(order.to_x, order.to_y);
 				var opponent = dest.unit;
-				if(opponent && !this._evaluateCombat(unit, opponent, events))
+				if(opponent && !this._evaluateCombat(unit, { x:order.from_x, y:order.from_y }, opponent, events))
 					continue;
 
 				dest.unit = unit;
@@ -258,7 +263,7 @@ function Sim(params, callback) {
 				}
 				break;
 			}
-			case 'surrender':
+			case 'capitulate':
 				events.push(order);
 				this.parties[order.party].objectives = 0;
 				break;
@@ -348,29 +353,94 @@ function Sim(params, callback) {
 		return evts;
 	}
 
-	this._evaluateCombat = function(attacker, defender, events) {
+	this._evaluateCombat = function(attacker, attackFrom, defender, events) {
 		var attack = attacker.type.attack;
 		var defense = defender.type.defend;
 		var location = this.map.get(defender.x, defender.y);
 		defense *= MD.Terrain[location.terrain].defend;
 
+		// evaluate support:
+		for(var i=0; i<18; ++i) {
+			var nbPos = MatrixHex.neighbor(defender, i);
+			if(nbPos.x == attackFrom.x && nbPos.y == attackFrom.y)
+				continue;
+
+			var unit = this.map.get(nbPos.x, nbPos.y).unit;
+			if(!unit || !unit.type.support)
+				continue;
+
+			var distance = (i<6) ? 1 : 2;
+			if(unit.type.range<distance)
+				continue;
+
+			if(unit.party.id == attacker.party.id)
+				attack += unit.type.support;
+			else if(unit.party.id == defender.party.id)
+				defense += unit.type.support;
+			else
+				continue;
+			events.push({ type:'support', x:defender.x, y:defender.y, unit:unit.id, origin_x:unit.x, origin_y:unit.y});
+		}
+
 		// evaluate result:
 		var score = Math.floor(Math.random()*(attack+defense));
-		var event = { type:'combat', attack:attack, defense:defense, score:score, x:defender.x, y:defender.y};
-		var looser;
-		if(score<attack) { // attacker wins
+		var event = { type:'combat', attack:attack, defense:defense, score:score, x:defender.x, y:defender.y };
+
+		var winner, looser;
+		if(score < attack) {
 			event.winner = attacker.id;
 			event.looser = defender.id;
+			winner = attacker;
 			looser = defender;
 		}
 		else {
 			event.winner = defender.id;
 			event.looser = attacker.id;
+			winner = defender;
 			looser = attacker;
 		}
 		events.push(event);
-		if(looser.party in this.parties)
-			--this.parties[looser.party].units;
+
+		// evaluate surrender or retreat:
+		score = Math.floor(Math.random()*10);
+		var looserSurrenders = (score >= looser.type.retreat);
+		var retreatPos = null;
+
+		if(!looserSurrenders) {
+			if(looser == attacker) { // attacker retreats to original position
+				retreatPos = attackFrom;
+			}
+			else { // defender tries to retreat
+				var attackVector = MatrixHex.angleHex(attackFrom, defender);
+				var dir2 = (attackVector+1)%6, dir3 = (attackVector+5)%6;
+				var flip = Math.random()<0.5;
+				var retreatPositions = [
+					MatrixHex.polar2hex(looser, attackVector),
+					MatrixHex.polar2hex(looser, flip ?  dir3 : dir2),
+					MatrixHex.polar2hex(looser, flip ?  dir2 : dir3)
+				];
+
+				for(var i=0; i<retreatPositions.length && retreatPos === null; ++i) {
+					var tile = this.map.get(retreatPositions[i].x, retreatPositions[i].y);
+					if(!looser.isAccessible(tile) || tile.unit || looser.isBlocked(this.map, retreatPositions[i], tile))
+						continue;
+					retreatPos = retreatPositions[i];
+				}
+			}
+		}
+
+		if(retreatPos && this.map.unitMove(looser, retreatPos, events)) {
+			events.push({ type:'retreat', score:score, from_x:winner.x, from_y:winner.y,
+				to_x:retreatPos.x, to_y:retreatPos.y, unit:looser.id });
+			var dest = this.map.get(retreatPos.x, retreatPos.y);
+			dest.unit = looser;
+		}
+		else {
+			events.push({ type:'surrender', score:score, x:looser.x, y:looser.y,
+				unit:looser.id });
+			if(looser.party.id in this.parties)
+				--this.parties[looser.party.id].units;
+		}
 		return looser==defender;
 	}
 
@@ -442,7 +512,8 @@ function Sim(params, callback) {
 		};
 		for(var key in this.parties) {
 			var party = this.parties[key];
-			data.parties[key] = { objectives:party.objectives, units:party.units, orders:party.orders };
+			data.parties[key] = { objectives:party.objectives, units:party.units,
+				orders:party.orders, knownObjectives:(party.knownObjectives ? party.knownObjectives : {})};
 		}
 		return data;
 	}
@@ -463,8 +534,12 @@ function Sim(params, callback) {
 		
 	this._initStats = function(scenario) {
 		var parties = {};
-		for(var key in scenario.starts)
-			parties[key] = { objectives:1, units:0, orders:null, fov:this.map.getFieldOfView(key) };
+		for(var key in scenario.starts) {
+			parties[key] = { objectives:1, units:0, orders:null,
+				fov:this.map.getFieldOfView(key), knownObjectives:{} };
+			for(var partyId in scenario.starts)
+				parties[key].knownObjectives[scenario.starts[partyId]]=partyId;
+		}
 		for(var key in scenario.units) {
 			var unit = scenario.units[key];
 			if(unit.party in parties)

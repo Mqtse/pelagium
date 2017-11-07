@@ -21,15 +21,15 @@ function MatrixHex(width, height, value) {
 		case 0: // north
 			x=hex.x; y=hex.y-dist; break;
 		case 1: // north-east
-			x=hex.x+dist; y=hex.y-Math.floor(dist/2)- ((!distodd)?0:offsetY?0:1); break;
+			x=hex.x+dist; y=hex.y-Math.floor(dist/2)-((!distodd)?0:offsetY?0:1); break;
 		case 2: // south-east
-			x=hex.x+dist; y=hex.y+Math.floor(dist/2)+ ((!distodd)?0:offsetY?1:0); break;
+			x=hex.x+dist; y=hex.y+Math.floor(dist/2)+((!distodd)?0:offsetY?1:0); break;
 		case 3: // south
 			x=hex.x; y=hex.y+dist; break;
 		case 4: // south-west
-			x=hex.x-dist; y=hex.y+Math.floor(dist/2)+ ((!distodd)?0:offsetY?1:0); break;
+			x=hex.x-dist; y=hex.y+Math.floor(dist/2)+((!distodd)?0:offsetY?1:0); break;
 		case 5: // north-west
-			x=hex.x-dist; y=hex.y-Math.floor(dist/2)- ((!distodd)?0:offsetY?0:1); break;
+			x=hex.x-dist; y=hex.y-Math.floor(dist/2)-((!distodd)?0:offsetY?0:1); break;
 		default:
 			return null;
 		}
@@ -239,6 +239,10 @@ function MapHex(params) {
 			return { terrain:MD.WATER, color:null };
 		return this.page.get(x, y);
 	}
+	this.getPolar = function(x, y, dir, dist) {
+		return this.page.getPolar(x, y, dir, dist);
+	}
+
 	this.generators = {
 		islandInhabited: function(seed) {
 			var rnd = new Math.seedrandom(seed);
@@ -453,10 +457,12 @@ function MapHex(params) {
 	}
 	this.unitMove = function(unit, dest, events) {
 		var tile = this.page.get(dest.x, dest.y);
-		if(!tile || !MD.isNavigable(tile.terrain, unit.type))
+		if(!tile || !MD.isNavigable(tile.terrain, unit.type) || this.page.distHex(unit, dest)!=1)
 			return false;
-		if(tile.unit && tile.unit.party==unit.party) {
-			events.push({ type:'blocked', unit:unit.id, x:dest.x, y:dest.y, blocker:tile.unit.id });
+
+		var blockEvent = unit.isBlocked(this.page, dest, tile);
+		if(blockEvent) {
+			events.push(blockEvent);
 			return false;
 		}
 
@@ -532,16 +538,29 @@ function Unit(data) {
 		return { type:this.type.id, x:this.x, y:this.y, id:this.id, party:this.party.id };
 	}
 
-	this.getFieldOfMovement = function(map, unitsToIgnore) {
-		var isAccessible = function(unit, tile, unitsToIgnore) {
-			if(!tile || !MD.isNavigable(tile.terrain, unit.type))
-				return false;
-			if(tile.unit && tile.unit.party.id == unit.party.id) {
-				if(!unitsToIgnore || !(tile.unit.id in unitsToIgnore))
-					return false;
-			}
-			return true;
+	this.isAccessible = function(tile) {
+		 return tile && MD.isNavigable(tile.terrain, this.type);
+	}
+	this.isBlocked = function(map, dest, tile, unitsToIgnore) {
+		if(tile.unit) {
+			if(tile.unit.party.id!=this.party.id)
+				return false; // direct attack always allowed
+			if(!unitsToIgnore || !(tile.unit.id in unitsToIgnore))
+				return { type:'blocked', unit:this.id, x:dest.x, y:dest.y, blocker:tile.unit.id };
 		}
+		// test whether movement is blocked by adjacent enemies:
+		var moveVector = MatrixHex.angleHex(this, dest);
+		var nb = map.getPolar(this.x, this.y, (moveVector+5)%6);
+		if(nb.unit && nb.unit.party.id!=this.party.id && nb.unit.type.attack)
+			return { type:'blocked', unit:this.id, x:dest.x, y:dest.y, blocker:nb.unit.id };
+
+		nb = map.getPolar(this.x, this.y, (moveVector+1)%6);
+		if(nb.unit && nb.unit.party.id!=this.party.id && nb.unit.type.attack)
+			return { type:'blocked', unit:this.id, x:dest.x, y:dest.y, blocker:nb.unit.id };
+		return false;
+	}
+
+	this.getFieldOfMovement = function(map, unitsToIgnore) {
 		var radius = this.type.move;
 		if(radius>3)
 			throw 'movement radii>3 not implemented.';
@@ -554,7 +573,7 @@ function Unit(data) {
 		for(var i=0; i<6; ++i) {
 			var nb = map.polar2hex(center, i, 1);
 			var tile = map.get(nb.x, nb.y);
-			if(!isAccessible(this, tile, unitsToIgnore))
+			if(!this.isAccessible(tile) || this.isBlocked(map, nb, tile, unitsToIgnore))
 				continue;
 			var move = MD.Terrain[tile.terrain].move;
 			var newNbhTile = {x:nb.x, y:nb.y, move:move, dist:center.move+move, pred:center, unit:tile.unit};
@@ -571,7 +590,7 @@ function Unit(data) {
 		for(var i=0, end = nb2test.length; i!=end; ++i) {
 			var nb = map.neighbor(this, nb2test[i]);
 			var tile = map.get(nb.x, nb.y);
-			if(!isAccessible(this, tile))
+			if(!this.isAccessible(tile))
 				continue;
 
 			var newNbhTile = null;
@@ -580,6 +599,15 @@ function Unit(data) {
 				var nbhTile = nbh.get(pos.x, pos.y);
 				if(nbhTile===null || nbhTile.unit)
 					continue;
+
+				this.x = pos.x;
+				this.y = pos.y;
+				var isBlocked = this.isBlocked(map, nb, tile, unitsToIgnore);
+				this.x = center.x;
+				this.y = center.y;
+				if(isBlocked)
+					continue;
+
 				var move = MD.Terrain[tile.terrain].move;
 				var currDist = nbhTile.dist + nbhTile.move + move;
 				if(!newNbhTile || currDist<newNbhTile.dist)
