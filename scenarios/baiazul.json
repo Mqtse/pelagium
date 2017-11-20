@@ -1,0 +1,30 @@
+{
+	"seed": "pelagium_281474976710655_0",
+	"tiles": [
+		{"x":7,"y":17, "terrain":1}, {"x":9,"y":13, "terrain":1},
+		{"x":12,"y":17, "terrain":1}, {"x":13,"y":18, "terrain":3, "id":4},
+		{"x":17,"y":9, "terrain":2}, {"x":17,"y":10, "terrain":2},
+		{"x":18,"y":10, "terrain":2}, {"x":19,"y":14, "terrain":2},
+		{"x":20,"y":14, "terrain":2}, {"x":21,"y":14, "terrain":2}, {"x":21,"y":13, "terrain":2},
+		{"x":22,"y":14, "terrain":2}, {"x":10,"y":25, "terrain":2}
+	],
+	"starts": { "1":0, "2":11 },
+	"units": [
+		{"type":"inf", "party":1, "x":6, "y":12},
+		{"type":"inf", "party":1, "x":6, "y":14},
+		{"type":"inf", "party":1, "x":5, "y":14},
+		{"type":"art", "party":1, "x":6, "y":13},
+		{"type":"art", "party":1, "x":5, "y":13},
+		{"type":"inf", "party":1, "x":7, "y":12},
+		{"type":"kv", "party":1, "x":21, "y":15},
+		{"type":"kv", "party":1, "x":7, "y":15},
+		{"type":"kv", "party":2, "x":22, "y":15},
+		{"type":"kv", "party":2, "x":22, "y":18},
+		{"type":"art", "party":2, "x":23, "y":17},
+		{"type":"art", "party":2, "x":23, "y":16},
+		{"type":"inf", "party":2, "x":22, "y":17},
+		{"type":"inf", "party":2, "x":22, "y":16},
+		{"type":"inf", "party":2, "x":21, "y":16},
+		{"type":"inf", "party":2, "x":23, "y":15}
+	]
+}

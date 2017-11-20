@@ -8,8 +8,7 @@ if(typeof require !== 'undefined') {
 /// hexagonal matrix class
 function MatrixHex(width, height, value) {
 	MatrixHex.hasOffsetY = this.hasOffsetY = function(x) {
-		var offsetOdd = (this.offsetOdd===undefined) ? 1 : this.offsetOdd;
-		return x%2==offsetOdd;
+		return x%2==1;
 	}
 	MatrixHex.polar2hex = this.polar2hex = function(hex, dir, dist) { // dir 0=north, 1=northeast, 2=southeast,...
 		dist=(dist===undefined)? 1 : Math.floor(dist);
@@ -139,13 +138,12 @@ function MatrixHex(width, height, value) {
 
 	this.serialize = function(rleEncode) {
 		var values = rleEncode ? MatrixHex.rleEncode(this.data) : this.data;
-		var data = { width:this.width, height:this.height, data:values, offsetOdd:this.offsetOdd };
+		var data = { width:this.width, height:this.height, data:values };
 		return data;
 	}
 	this.deserialize = function(data) {
 		this.width = data.width;
 		this.height = data.height;
-		this.offsetOdd = data.offsetOdd;
 		if(data.data.length==this.width*this.height)
 			this.data = data.data;
 		else {
@@ -159,7 +157,6 @@ function MatrixHex(width, height, value) {
 		return this.deserialize(width);
 	this.width = width;
 	this.height = height;
-	this.offsetOdd = 1;
 	this.reset(value);
 }
 
@@ -409,7 +406,15 @@ function MapHex(params) {
 		if(tiles) for(var i = tiles.length; i--; ) {
 			var tile = tiles[i];
 			page.set(tile.x, tile.y, tile);
+			if(tile.terrain == MD.OBJ && objectives) {
+				var obj = objectives[tile.id];
+				obj.x = tile.x;
+				obj.y = tile.y;
+			}
+			delete tile.x;
+			delete tile.y;
 		}
+
 		if(objectives) for(var i=objectives.length; i--; ) {
 			var obj = objectives[i];
 			var tile = page.get(obj.x, obj.y);
@@ -420,30 +425,70 @@ function MapHex(params) {
 				tile.progress = obj.progress || 0;
 			}
 		}
-		if(units) for(var i=units.length; i--;)
-			this.unitAdd(units[i], page);
+
+		if(units)
+			units.forEach(function(unit) { this.unitAdd(unit, page); }, this);
 		return page;
+	}
+
+	this.createUnits = function(page, objectives, starts) {
+		// determine minimum number of adjacent land tiles:
+		var numUnitsMax = 6;
+		for(var party in params.starts) {
+			var objId = params.starts[party];
+			if(objId>=objectives.length)
+				continue;
+			var obj = objectives[objId];
+			var numAdjacentLandTiles = 0;
+			for(var i=0; i<6; ++i)
+				if(page.getPolar(obj.x, obj.y, i).terrain > MD.WATER)
+					++numAdjacentLandTiles;
+			numUnitsMax = Math.min(numUnitsMax, numAdjacentLandTiles);
+		}
+		// place units round robin:
+		for(var party in params.starts) {
+			var objId = params.starts[party];
+			if(objId>=objectives.length)
+				continue;
+			var obj = objectives[objId];
+			var numUnits = 0;
+			for(var i=0; i<6 && numUnits<numUnitsMax; ++i) {
+				var pos = page.polar2hex(obj, i);
+				var tile = page.get(pos.x, pos.y);
+				if(tile.terrain <= MD.WATER)
+					continue;
+				var type;
+				switch(numUnits%3) {
+				case 0: type='inf'; break;
+				case 1: type='kv'; break;
+				case 2: type='art'; break;
+				}
+				this.unitAdd({type:type, party:party, x:pos.x, y:pos.y}, page);
+				++numUnits;
+			}
+		}
 	}
 
 	this.createScenario = function(params) {
 		// create terrain:
-		var seed = params.seed || 0;
-		var terrain = this.generators[params.generator](seed);
+		var seed = params.seed || "pelagium";
+		var terrain = this.generators[params.generator ? params.generator : "islandInhabited"](seed);
 
 		if(terrain.objectives) { // create scenario:
-			if(params.filterMinorObjectives)
+			if(!('filterMinorObjectives' in params ) || params.filterMinorObjectives)
 				this.filterMinorObjectives(terrain);
-			if(params.starts) for(var party in params.starts) {
+			if(!params.starts)
+				params.starts = { 1:0, 2:terrain.objectives.length-1 };
+			for(var party in params.starts) {
 				var objId = params.starts[party];
 				if(objId<terrain.objectives.length)
 					terrain.objectives[objId].party = party;
 			}
-			else {
-				terrain.objectives[0].party = 1;
-				terrain.objectives[terrain.objectives.length-1].party = 2;
-			}
 		}
-		return this.unifyMap(terrain, params.tiles, terrain.objectives, params.units);
+		var page = this.unifyMap(terrain, params.tiles, terrain.objectives, params.units);
+		if(!('units' in params) && terrain.objectives)
+			this.createUnits(page, terrain.objectives, params.starts);
+		return page;
 	}
 
 	this.unitAdd = function(unit, page) {
@@ -530,6 +575,62 @@ MapHex.finalizeAppearance = function(page) {
 				tile.color=null;
 		}
 	}
+}
+
+MapHex.calculateCellMetrics = function(height) {
+	return {
+		h:height,
+		r: Math.tan(Math.PI/6)*height,
+		w: 1.5 * Math.tan(Math.PI/6)*height
+	};
+}
+
+MapHex.draw = function(canvas, map, vp, cellMetrics, fieldOfView, fastMode) {
+	var fogOfWar = null;
+	var fowScale=0.125;
+	var fowRadius =(cellMetrics.r+cellMetrics.h/5)*fowScale;
+	var fowMargin = .2;
+	var drawWater = fastMode ? 1 : 0;
+	var lineWidth = Math.max(cellMetrics.r/8, 1.5);
+
+	var dc = canvas.getContext('2d');
+	dc.clearRect(0 , 0 , canvas.width, canvas.height);
+	if(fieldOfView && !fastMode) { // fog of war
+		fogOfWar = document.createElement('canvas');
+		var width = fogOfWar.width = canvas.width*fowScale;
+		var height = fogOfWar.height = canvas.height*fowScale;
+		var ctx = fogOfWar.dc = extendCanvasContext(fogOfWar.getContext('2d'));
+		ctx.fillStyle='rgba(0,0,0,0.2)';
+		ctx.fillRect(0,0, width, height);
+		ctx.fillStyle='white';
+		ctx.globalCompositeOperation='destination-out';
+	}
+
+	for(var x=Math.max(0,vp.x), xEnd=Math.min(vp.x+vp.width, map.width); x<xEnd; ++x) {
+		var offsetX = vp.offsetX ? vp.offsetX : 0;
+		var offsetY = vp.offsetY ? vp.offsetY : 0;
+		if(x%2) 
+			offsetY+=0.5*cellMetrics.h;
+		for(var y=Math.max(0,vp.y), yEnd=Math.min(vp.y+vp.height, map.height); y<yEnd; ++y) {
+			var tile = map.get(x,y);
+			if(!tile)
+				continue;
+			var terrain = tile.terrain;
+			var fill = ('color' in tile) ? tile.color : MD.Terrain[terrain].color;
+			var cx = (x-vp.x)*cellMetrics.w+offsetX, cy = (y-vp.y)*cellMetrics.h+offsetY;
+			if(terrain==MD.OBJ && tile.party && !fastMode) {
+				var strokeStyle = MD.Party[tile.party].color;
+				dc.hex(cx, cy, cellMetrics.r-fowMargin-lineWidth/2,
+					{ fillStyle:fill, strokeStyle:strokeStyle, lineWidth:lineWidth });
+			}
+			else if(fill && (terrain>=drawWater))
+				dc.hex(cx, cy, cellMetrics.r-fowMargin, { fillStyle:fill });
+			if(fogOfWar && fieldOfView.get(x,y)!==0)
+				fogOfWar.dc.hex(cx*fowScale, cy*fowScale, fowRadius, { fillStyle:'white' });
+		}
+	}
+	if(fogOfWar)
+		dc.drawImage(fogOfWar, 0,0, canvas.width, canvas.height);
 }
 
 //--- Unit ---------------------------------------------------------

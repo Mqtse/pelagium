@@ -1,0 +1,25 @@
+{
+	"visibility":"hidden",
+	"seed":"mega",
+	"pageSz":64,
+	"tiles":[
+		{"x":20,"y":30, "terrain":1},
+		{"x":22,"y":41, "terrain":2},
+		{"x":23,"y":39, "terrain":2},
+		{"x":23,"y":40, "terrain":2},
+		{"x":24,"y":39, "terrain":2},
+		{"x":25,"y":38, "terrain":2},
+		{"x":26,"y":21, "terrain":2},
+		{"x":30,"y":36, "terrain":2},
+		{"x":34,"y":41, "terrain":2},
+		{"x":38,"y":34, "terrain":2},
+		{"x":39,"y":33, "terrain":2},
+		{"x":39,"y":34, "terrain":2},
+		{"x":40,"y":34, "terrain":2},
+		{"x":43,"y":25, "terrain":1},
+		{"x":44,"y":34, "terrain":1},
+		{"x":44,"y":35, "terrain":1},
+		{"x":45,"y":34, "terrain":1}
+	],
+	"starts":{ "1":22, "2":16, "3":0, "4":25 }
+}

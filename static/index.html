@@ -92,9 +92,49 @@ input {
 	opacity: 1.0;
 	cursor: pointer;
 }
+
+ul#scenarios {
+	width:75vw;
+	overflow-x: scroll;
+	font-size: 20px;
+}
+
+#scenarios li {
+	display:inline;
+	position:relative;
+	margin-right:2vh;
+}
+#scenarios canvas {
+	background: rgb(130,160,200);
+}
+#scenarios div {
+	position:absolute;
+	left:0.1em;
+	bottom:0.1em;
+}
+#scenarios li:hover {
+	text-shadow:0 0 2px rgb(153,179,205);
+}
+
+#custom_scenario {
+	width:75vw;
+}
+#custom_scenario input {
+	width:70vw;
+}
+#custom_scenario svg {
+	width:5vw;
+	height:5vw; 
+	opacity:0.75;
+}
+#custom_scenario svg:hover { opacity:1.0; }
+
 		</style>
 
 		<script type="text/javascript" src="/static/infra.js"></script>
+		<script type="text/javascript" src="/static/seedrandom.js"></script>
+		<script type="text/javascript" src="/static/masterdata.js"></script>
+		<script type="text/javascript" src="/static/shared.js"></script>
 		<script type="text/javascript">
 window.onerror=function(msg, url, linenumber) {
 	alert('Error message: '+msg+'\nURL: '+url+'\nLine Number: '+linenumber);
@@ -119,12 +159,66 @@ app = {
 			if(settings.resume)
 			 	document.getElementById("resume_id").value = settings.resume;
 		}
+		http.get('/pelagium/scenarios', null, function(data, code) {
+			if(code!=200)
+				return console.error('loading scenario data failed', code, data);
+			this.addScenarios(data);
+		}, this);
 		eludi.click2touch();
 	},
-	start: function() {
+	addScenarios: function(data) {
+		var parent =  document.getElementById("scenarios");
+
+		for(var id in data) {
+			var li = parent.firstChild.cloneNode(true);
+			li.style.display='';
+			li.dataset.id = id;
+			li.querySelector('div').innerHTML = id;
+
+			var canvas = li.querySelector('canvas');
+			var dc = canvas.getContext('2d');
+			extendCanvasContext(dc);
+
+			var map = new MapHex(data[id]);
+			var page = map.page;
+			for(var x=0; x<page.width; ++x) for(var y=0; y<page.height; ++y) {
+				var tile = page.get(x,y);
+				if(tile.terrain!=MD.WATER)
+					continue;
+				var pos = { x:x, y:y };
+				var nb=null;
+				for(var i=0; i<6 && !nb; ++i) {
+					nb = page.getNeighbor(pos, i);
+					if(nb && nb.terrain==MD.WATER)
+						nb=null;
+				}
+				if(!nb)
+					tile.color=null;
+			}
+
+			var vp = { x:-2, y:1, width:page.width+2, height:page.height-2 };
+			var cellMetrics = MapHex.calculateCellMetrics(canvas.height/(page.height-2));
+			if('devicePixelRatio' in window && window.devicePixelRatio!=1.0) {
+				canvas.style.width = canvas.width + 'px';
+				canvas.style.height = canvas.height + 'px';
+				canvas.width *= window.devicePixelRatio;
+				canvas.height *= window.devicePixelRatio;
+				dc.scale(window.devicePixelRatio, window.devicePixelRatio);
+			}
+			MapHex.draw(canvas, page, vp, cellMetrics);
+
+			parent.appendChild(li);
+		}
+	},
+	start: function(scenario) {
 		if(!navigator.onLine)
 			return alert('server connection required for starting a new game');
-		eludi.openUrl('/static/pelagium.html', {cmd:'start'}, false);
+		var params = {cmd:'start'};
+		if(!scenario)
+			scenario = document.getElementById("scenario_id").value;
+		if(scenario)
+			params.scenario = scenario;
+		eludi.openUrl('/static/pelagium.html', params, false);
 	},
 	resume: function() {
 		var id = document.getElementById("resume_id").value.toUpperCase();
@@ -149,7 +243,7 @@ app = {
 		<div id="screens"
 			><ul id="screen_main"
 				><li class="l10n" onclick="app.screen('resume');">resume game</li
-				><li class="l10n" onclick="app.start();">start game</li
+				><li class="l10n" onclick="setTimeout(function() { app.screen('scenario'); }, 500);">start game</li
 				><li class="l10n" onclick="app.screen('join');">join game</li
 				><li class="l10n" onclick="app.close()">exit</li
 			></ul
@@ -158,7 +252,7 @@ app = {
 				><h2 class="l10n">resume game</h2
 				><input type="text" id="resume_id" placeholder ="id" size="6" maxlength="6"
 					onkeypress="app.onEnter(event, function() { app.resume(); });"
-				/><ul class="hmenu"
+				/><ul
 					><li onclick="app.resume();"><span class ="l10n">resume</span></li
 					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
 				></ul
@@ -168,12 +262,30 @@ app = {
 				><h2 class="l10n">join game</h2
 				><input type="text" id="join_id" placeholder ="id" size="6" maxlength="6"
 					onkeypress="app.onEnter(event, function() { app.join(); });"
-				/><ul class="hmenu"
+				/><ul
 					><li onclick="app.join();"><span class ="l10n">join</span></li
 					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
 				></ul
 			></div
 
+			><div id="screen_scenario" style="display:none;"
+				><h2 class="l10n">start game</h2
+				><div id="custom_scenario"
+					><input type="text" id="scenario_id" placeholder="custom scenario" size="12" maxlength="20"
+						onkeypress="app.onEnter(event, function() { app.start(); });"
+					/><svg onclick="app.start();" viewbox="0 0 10 10"><path style="fill:white;stroke:none;" d="M 1 1 l0 8 l8 -4 z"></path></svg
+				></div
+				><ul id="scenarios"
+					><li class="scenario_preview" style="display:none;"
+						data-id="default" onclick="app.start(event.currentTarget.dataset.id);"
+						><canvas width="240" height="240"></canvas
+						><div>scenario name</div
+					></li
+				></ul
+				><ul
+					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
+				></ul
+			></div
 		></div
 		><img id="logo" src="/static/eludi.logo.svg" onclick="document.location.href='https://eludi.net';" alt="eludi.net"
 	/></body>

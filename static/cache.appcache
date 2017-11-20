@@ -1,8 +1,9 @@
 CACHE MANIFEST
-#v0.7.9
+#v0.8.18
 
 CACHE:
 /pelagium
+/pelagium/scenarios
 /static/pelagium.html
 /static/sim_proxy.js
 /static/client.js

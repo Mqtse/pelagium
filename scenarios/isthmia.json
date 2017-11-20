@@ -1,0 +1,15 @@
+{
+	"seed":"pelagium_38_13",
+	"starts":{ "1":6, "2":13 },
+	"tiles": [
+		{"x":11,"y":12, "terrain":1},
+		{"x":16,"y":13, "terrain":1},
+		{"x":17,"y":13, "terrain":1},
+		{"x":18,"y":13, "terrain":1},
+		{"x":18,"y":14, "terrain":1},
+		{"x":12,"y":18, "terrain":2},
+		{"x":12,"y":19, "terrain":2},
+		{"x":13,"y":18, "terrain":2},
+		{"x":13,"y":19, "terrain":2}
+	]
+}

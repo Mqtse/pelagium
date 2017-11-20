@@ -1,0 +1,22 @@
+{
+	"seed":"pelagium_11_13",
+	"tiles": [
+		{"x":6,"y":16, "terrain":1},
+		{"x":9,"y":17, "terrain":1},
+		{"x":10,"y":17, "terrain":1},
+		{"x":11,"y":17, "terrain":0},
+		{"x":12,"y":14, "terrain":1},
+		{"x":12,"y":17, "terrain":0},
+		{"x":12,"y":18, "terrain":0},
+		{"x":13,"y":15, "terrain":0},
+		{"x":13,"y":16, "terrain":0},
+		{"x":13,"y":17, "terrain":0},
+		{"x":13,"y":18, "terrain":0},
+		{"x":14,"y":16, "terrain":0},
+		{"x":14,"y":17, "terrain":0},
+		{"x":15,"y":17, "terrain":0},
+		{"x":16,"y":14, "terrain":1},
+		{"x":16,"y":17, "terrain":0},
+		{"x":16,"y":18, "terrain":0}
+	]
+}

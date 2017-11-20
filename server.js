@@ -8,10 +8,11 @@ var cfg = {
 	host:'0.0.0.0',
 	port:1771,
 	devMode: 1,
-	persistence:false,
 	gcInterval: 60*60*12,
 	matchTimeout: 60*60*24*3,
-	matchOverTimeout: 60*60*24
+	matchOverTimeout: 60*60*24,
+	persistence:false,
+	scenarios: 'scenarios'
 }
 httpUtils.parseArgs(process.argv.slice(2), cfg);
 console.log(cfg);
@@ -86,7 +87,7 @@ function ServerPelagium(topLevelPath, persistence) {
 	}
 
 	this.userCreate = function(match, params) {
-		var numPlayersMax = 2;
+		var numPlayersMax = match.sim.numParties;
 		var numPlayers = match.users.size;
 		if(numPlayers >= numPlayersMax)
 			return [ 403, 'Additional players forbidden'];
@@ -159,6 +160,9 @@ function ServerPelagium(topLevelPath, persistence) {
 
 		if(path.length==2) {
 			var id = path[1];
+			if(id=='scenarios' && method=='GET')
+				return respond(resp, 200, Sim.visibleScenarios);
+
 			var match = this.matches.get(id);
 			if(method=='GET') { // reconnect
 				if(!match || id==match.id)
@@ -211,6 +215,7 @@ function ServerPelagium(topLevelPath, persistence) {
 
 	setInterval(function(self) { self.collectGarbage(); }, cfg.gcInterval * 1000, this);
 }
+Sim.loadScenarios(cfg.scenarios);
 var serverPelagium = new ServerPelagium('pelagium', cfg.persistence);
 
 //------------------------------------------------------------------

@@ -518,6 +518,7 @@ function Sim(params, callback) {
 		return data;
 	}
 	this._deserialize = function(data) {
+		// CAVEAT: no changes that prohibit deserialization of existing match serializations!
 		this.scenario = data.scenario;
 		this.timePerTurn = data.timePerTurn;
 		this.devMode = data.devMode;
@@ -527,14 +528,19 @@ function Sim(params, callback) {
 		this.simEventCounter = data.simEventCounter;
 		this.map = new MapHex(data.map);
 		this.parties = data.parties;
-		for(var key in this.parties)
+		this.numParties = 0;
+		for(var key in this.parties) {
 			this.parties[key].fov = this.map.getFieldOfView(key);
+			++this.numParties;
+		}
 		this.state = data.state;
 	}
 		
 	this._initStats = function(scenario) {
-		var parties = {};
+		var parties = this.parties = {};
+		this.numParties = 0;
 		for(var key in scenario.starts) {
+			++this.numParties;
 			parties[key] = { objectives:1, units:0, orders:null,
 				fov:this.map.getFieldOfView(key), knownObjectives:{} };
 			for(var partyId in scenario.starts)
@@ -545,12 +551,12 @@ function Sim(params, callback) {
 			if(unit.party in parties)
 				++parties[unit.party].units;
 		}
-		return parties;
 	}
 
 	this._init = function(params) {
 		var defaults = {
 			scenario:'baiazul',
+			pageSz:32,
 			timePerTurn: 86400, // 1 day
 			devMode: 1
 		};
@@ -559,67 +565,22 @@ function Sim(params, callback) {
 				isNaN(parseInt(params[key])) ? params[key] : parseInt(params[key])
 				: defaults[key];
 
-		var scenarios = {
-			fallback: { generator: "islandInhabited", seed: "pelagium", filterMinorObjectives:true },
-			aborigina: {
-				generator: "islandInhabited",
-				seed: "pelagium_0_0",
-				filterMinorObjectives:true,
-				tiles: [ {x:24,y:19, terrain:1}, {x:24,y:20, terrain:3, id:12, party:1} ],
-				starts: { 1:12, 2:6 }
-			},
-			baiazul: {
-				generator: "islandInhabited",
-				seed: "pelagium_281474976710655_0",
-				filterMinorObjectives:true,
-				tiles: [
-					{x:12,y:17, terrain:1}, {x:13,y:18, terrain:3, id:4}, {x:19,y:14, terrain:2},
-					{x:20,y:14, terrain:2}, {x:21,y:14, terrain:2}, {x:21,y:13, terrain:2},
-					{x:22,y:14, terrain:2}, {x:10,y:25, terrain:2}
-				],
-				starts: { 1:0, 2:11 },
-				units: [
-					{type:'inf', party:1, x:6, y:12},
-					{type:'inf', party:1, x:6, y:14},
-					{type:'inf', party:1, x:5, y:14},
-					{type:'art', party:1, x:6, y:13},
-					{type:'art', party:1, x:5, y:13},
-					{type:'inf', party:1, x:7, y:12},
-					{type:'kv', party:1, x:21, y:15},
-					{type:'kv', party:1, x:7, y:15},
-					{type:'kv', party:2, x:22, y:15},
-					{type:'kv', party:2, x:22, y:18},
-					{type:'art', party:2, x:23, y:17},
-					{type:'art', party:2, x:23, y:16},
-					{type:'inf', party:2, x:22, y:17},
-					{type:'inf', party:2, x:22, y:16},
-					{type:'inf', party:2, x:21, y:16},
-					{type:'inf', party:2, x:23, y:15},
-				],
-			},
-			estrela: { generator: "islandInhabited", seed: "pelagium_9_5", filterMinorObjectives:true, starts: { 1:1, 2:7 } },
-			laguna: { generator: "islandInhabited", seed: "pelagium_13_9", filterMinorObjectives:true, starts: { 1:3, 2:9 } },
-			isthmia: { generator: "islandInhabited", seed: "pelagium_38_13", filterMinorObjectives:true, starts: { 1:6, 2:13 } },
-			caldera: { generator: "islandInhabited", seed: "pelagium_11_13", filterMinorObjectives:true,
-				tiles: [
-					{x:11,y:17, terrain:0}, {x:12,y:17, terrain:0}, {x:12,y:18, terrain:0},
-					{x:13,y:15, terrain:0}, {x:13,y:16, terrain:0}, {x:13,y:17, terrain:0},
-					{x:13,y:18, terrain:0},{x:14,y:16, terrain:0}, {x:14,y:17, terrain:0},
-					{x:15,y:17, terrain:0}, {x:16,y:14, terrain:1}, {x:16,y:17, terrain:0},
-					{x:16,y:18, terrain:0},
-				],
-			},
-		}
-		var scenario;
-		if(this.scenario in scenarios)
-			scenario = scenarios[this.scenario];
+		var scenario = {};
+		if(!(this.scenario in Sim.scenarios))
+			scenario.seed = this.scenario;
 		else {
-			scenarios.fallback.seed = this.scenario;
-			scenario = scenarios.fallback;
+			var scn = Sim.scenarios[this.scenario];
+			for(var key in scn) {
+				var value = scn[key];
+				if(typeof value == 'object') // deepcopy
+					scenario[key] = JSON.parse(JSON.stringify(value));
+				else
+					scenario[key] = value;
+			}
 		}
 		this.map = new MapHex(scenario);
 	
-		this.parties = this._initStats(scenario);
+		this._initStats(scenario);
 		this.simEventCounter = 0;
 		this.turn = 1;
 		this.turnStartTime = this.lastUpdateTime = new Date()/1000.0;
@@ -634,6 +595,24 @@ function Sim(params, callback) {
 	this.simEventListeners = { };
 	if(callback)
 		callback({ party:params.party ? params.party : 1 }, this);
+}
+
+Sim.loadScenarios = function(path) {
+	var Storage = require('./DiskStorage');
+	var storage = new Storage(path);
+	var scenarios = Sim.scenarios = {};
+	var visible = Sim.visibleScenarios = {};
+	var numScenarios = 0;
+	storage.keys().forEach(function(id) {
+		var data = storage.getItem(id);
+		if(data) {
+			scenarios[id] = data;
+			++numScenarios;
+			if(!('visibility' in data)||data.visibility!='hidden')
+				visible[id] = data;
+		}
+	});
+	console.log(numScenarios, 'scenarios loaded from', path);
 }
 
 if(typeof module == 'object' && module.exports)

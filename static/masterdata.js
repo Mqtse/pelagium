@@ -41,9 +41,11 @@ var MD = {
 		}
 	],
 	Party: [
-		{ id:0, color: "rgb(0,127,63)", name: 'Neutral' },
+		{ id:0, color: "rgb(127,127,127)", name: 'Neutral' },
 		{ id:1, color: "rgb(0,0,255)", name: 'Blue' },
 		{ id:2, color: "rgb(255,0,0)", name: 'Red' },
+		{ id:3, color: "rgb(0,191,0)", name: 'Green' },
+		{ id:4, color: "rgb(255,191,0)", name: 'Yellow' }
 	],
 	Unit: {
 		inf: {

@@ -180,7 +180,7 @@ function ProductionController(selector, unitColor, callback) {
 client = {
 	init: function(params, sim) {
 		for(var key in settings)
-			this[key] =(key in params) ?
+			this[key] = (key in params) ?
 				isNaN(parseInt(params[key])) ? params[key] : parseInt(params[key])
 				: settings[key];
 
@@ -189,6 +189,7 @@ client = {
 		this.foreground = document.getElementById('foreground');
 		this.foreground.dc = extendCanvasContext(this.foreground.getContext("2d"));
 		this.vp = { x:0, y:0, width:1, height:1 };
+		this.cellMetrics = MapHex.calculateCellMetrics(this.cellHeight);
 		this.resize();
 
 		var self = this;
@@ -267,18 +268,16 @@ client = {
 
 	resize: function(scaleOnly) {
 		var reservedWidth=0, reservedHeight=0;
-		this.cellRadius = Math.tan(Math.PI/6)*this.cellHeight;
-		this.cellWidth = 1.5*this.cellRadius;
-		if(!('offsetX' in this)) {
-			this.offsetX = 0.5*this.cellRadius;
-			this.offsetY = 0;
+		if(!('offsetX' in this.vp)) {
+			this.vp.offsetX = 0.5*this.cellMetrics.r;
+			this.vp.offsetY = 0;
 		}
 		if(!scaleOnly) {
 			this.background.width = this.foreground.width = window.innerWidth-reservedWidth;
 			this.background.height = this.foreground.height = window.innerHeight-reservedHeight;
 		}
-		this.vp.width = Math.ceil(1.25+this.background.width/this.cellWidth);
-		this.vp.height = Math.ceil(1.5+this.background.height/this.cellHeight);
+		this.vp.width = Math.ceil(1.25+this.background.width/this.cellMetrics.w);
+		this.vp.height = Math.ceil(1.5+this.background.height/this.cellMetrics.h);
 		this.redrawMap = true;
 	},
 
@@ -318,10 +317,10 @@ client = {
 	},
 
 	handlePointerEvent: function(event) {
-		var offsetX = this.offsetX-0.75*this.cellRadius;
-		var cellX = Math.floor((event.x-offsetX) / this.cellWidth) + this.vp.x;
-		var offsetY = this.offsetY+((cellX%2) ? 0 : -0.5*this.cellHeight);
-		var cellY = Math.floor((event.y-offsetY) / this.cellHeight) + this.vp.y;
+		var offsetX = this.vp.offsetX-0.75*this.cellMetrics.r;
+		var cellX = Math.floor((event.x-offsetX) / this.cellMetrics.w) + this.vp.x;
+		var offsetY = this.vp.offsetY+((cellX%2) ? 0 : -0.5*this.cellMetrics.h);
+		var cellY = Math.floor((event.y-offsetY) / this.cellMetrics.h) + this.vp.y;
 
 		switch(event.type) {
 		case 'start':
@@ -353,7 +352,7 @@ client = {
 				return this.viewZoom(factor, centerX, centerY, -dx/2, -dy/2);
 			}
 			var dx=this.prevX-event.x, dy=this.prevY-event.y;
-			if(this.panning || (Math.pow(dx,2)+Math.pow(dy,2) >= Math.pow(this.cellRadius,2)) ) {
+			if(this.panning || (Math.pow(dx,2)+Math.pow(dy,2) >= Math.pow(this.cellMetrics.r,2)) ) {
 				this.panning = true;
 				this.prevX = event.x;
 				this.prevY = event.y;
@@ -487,7 +486,7 @@ client = {
 		else
 			this.selectUnit(tile.unit);
 
-		var msg = '';
+		var msg = '('+cellX+','+cellY+') ';
 		if(tile.party)
 			msg += MD.Party[tile.party].name+' ';
 		msg += MD.Terrain[tile.terrain].name;
@@ -502,16 +501,17 @@ client = {
 	},
 
 	viewZoomStep: function(delta, centerX, centerY) {
-		for(var i=0; i<this.scales.length; ++i) 
-			if(this.cellHeight==this.scales[i])
+		var i;
+		for(i=0; i<this.scales.length; ++i) 
+			if(this.cellMetrics.h==this.scales[i])
 				break;
-		var scale = this.cellHeight;
+		var scale = this.cellMetrics.h;
 		if(delta<0 && i>0)
 			scale = this.scales[i-1];
 		else if(delta>0 && i+1<this.scales.length)
 			scale = this.scales[i+1];
-		if(this.cellHeight != scale) {
-			var factor = scale / this.cellHeight;
+		if(this.cellMetrics.h != scale) {
+			var factor = scale / this.cellMetrics.h;
 			if(centerX===undefined)
 				centerX = this.background.width/2;
 			if(centerY===undefined)
@@ -521,37 +521,39 @@ client = {
 	},
 
 	viewZoom: function(factor, centerX, centerY, deltaX, deltaY) {
-		var scale = factor * this.cellHeight;
+		var scale = factor * this.cellMetrics.h;
 		var scaleMin = this.scales[0], scaleMax = this.scales[this.scales.length-1];
 		if(scale < scaleMin)
 			scale = this.scales[0];
 		else if(scale > scaleMax)
 			scale = scaleMax;
-		if(scale == this.cellHeight)
+		if(scale == this.cellMetrics.h)
 			return;
 		var dx = centerX * (factor-1.0) + (deltaX!==undefined ? deltaX : 0);
 		var dy = centerY * (factor-1.0) + (deltaY!==undefined ? deltaY : 0);
-		this.cellHeight = scale;
+		this.cellMetrics = MapHex.calculateCellMetrics(scale);
 		this.resize(true);
 		this.viewPan(dx, dy);
 	},
 
 	viewPan: function(dX, dY) {
-		this.offsetX -= dX;
-		this.offsetY -= dY;
-		this.vp.x -= (this.offsetX>=0) ? 
-			Math.floor(this.offsetX / this.cellWidth) : Math.ceil(this.offsetX / this.cellWidth);
-		this.vp.y -= (this.offsetY>=0) ?
-			Math.floor(this.offsetY / this.cellHeight) : Math.ceil(this.offsetY / this.cellHeight);
-		this.offsetX %= this.cellWidth;
-		this.offsetY %= this.cellHeight;
-		if(this.offsetX>0.5*this.cellRadius) {
-			this.offsetX -=this.cellWidth;
-			--this.vp.x;
+		var vp = this.vp;
+		var cm = this.cellMetrics;
+		vp.offsetX -= dX;
+		vp.offsetY -= dY;
+		vp.x -= (vp.offsetX>=0) ? 
+			Math.floor(vp.offsetX / cm.w) : Math.ceil(vp.offsetX / cm.w);
+		vp.y -= (vp.offsetY>=0) ?
+			Math.floor(vp.offsetY / cm.h) : Math.ceil(vp.offsetY / cm.h);
+		vp.offsetX %= cm.w;
+		vp.offsetY %= cm.h;
+		if(vp.offsetX>0.5*cm.r) {
+			vp.offsetX -=cm.w;
+			--vp.x;
 		}
-		if(this.offsetY>0) {
-			this.offsetY -=this.cellHeight;
-			--this.vp.y;
+		if(vp.offsetY>0) {
+			vp.offsetY -=cm.h;
+			--vp.y;
 		}
 		this.redrawMap = true;
 	},
@@ -686,14 +688,14 @@ client = {
 		var cellX = unit.x;
 		var cellY = unit.y;
 
-		var scale = this.cellRadius;
+		var scale = this.cellMetrics.r;
 		var transf = { x:0.0, y:0.0, r:0.0, scx:1.0, scy:1.0, opacity:1.0 };
 		if(unit.animation && (this.state=='input' || this.state=='replay'))
 			unit.animation.transform(this.time, transf);
 		var w=scale*transf.scx, h=scale*transf.scy;
 
-		var x=(transf.x+cellX-this.vp.x)*this.cellWidth+this.offsetX - w/2;
-		var y=(transf.y+cellY-this.vp.y)*this.cellHeight+this.offsetY + ((cellX%2) ? 0.5*this.cellHeight : 0) - h/2;
+		var x=(transf.x+cellX-this.vp.x)*this.cellMetrics.w+this.vp.offsetX - w/2;
+		var y=(transf.y+cellY-this.vp.y)*this.cellMetrics.h+this.vp.offsetY + ((cellX%2) ? 0.5*this.cellMetrics.h : 0) - h/2;
 
 		var sprite = document.createElement('canvas'); // todo, maybe prerender all sprites at double resolution?
 		sprite.width = w;
@@ -733,64 +735,24 @@ client = {
 	drawSelTile: function(dc, tile) {
 		var x = tile.x;
 		var y = tile.y;
-		var offsetY = this.offsetY;
+		var offsetY = this.vp.offsetY;
 		if(x%2) 
-			offsetY+=0.5*this.cellHeight;
-		var radius = this.cellRadius/6;
-		dc.circle((x-this.vp.x)*this.cellWidth+this.offsetX, (y-this.vp.y)*this.cellHeight+offsetY, radius,
+			offsetY+=0.5*this.cellMetrics.h;
+		var radius = this.cellMetrics.r/6;
+		dc.circle((x-this.vp.x)*this.cellMetrics.w+this.vp.offsetX,
+			(y-this.vp.y)*this.cellMetrics.h+offsetY, radius,
 			{ fillStyle:tile.fillStyle ? tile.fillStyle : 'rgba(0,0,0, 0.33)' });
 	},
 
 	draw: function() {
 		var fastMode = (this.panning || this.pinch) ? true : false;
-		var drawWater = fastMode ? 1 : 0;
-		var margin = .2;
-		var fogOfWar = null;
-		var fowScale=0.125;
-		var fowRadius =(this.cellRadius+this.cellHeight/5)*fowScale;
-		var lineWidth = this.cellRadius/8;
 		var vp = this.vp;
 
 		this.foreground.dc.clearRect( 0 , 0 , this.foreground.width, this.foreground.height );
 
 		if(this.redrawMap && this.mapView) { // background:
 			this.redrawMap = false;
-			var dc = this.background.dc;
-			dc.clearRect( 0 , 0 , this.background.width, this.background.height );
-			if(this.fov && !fastMode) { // fog of war
-				fogOfWar = document.createElement('canvas');
-				var width = fogOfWar.width = this.background.width*fowScale;
-				var height = fogOfWar.height = this.background.height*fowScale;
-				var ctx = fogOfWar.dc = extendCanvasContext(fogOfWar.getContext('2d'));
-				ctx.fillStyle='rgba(0,0,0,0.2)';
-				ctx.fillRect(0,0, width, height);
-				ctx.fillStyle='white';
-				ctx.globalCompositeOperation='destination-out';
-			}
-
-			for(var x=Math.max(0,vp.x), xEnd=Math.min(vp.x+vp.width, this.mapView.width); x<xEnd; ++x) {
-				var offsetY = this.offsetY;
-				if(x%2) 
-					offsetY+=0.5*this.cellHeight;
-				for(var y=Math.max(0,vp.y), yEnd=Math.min(vp.y+vp.height, this.mapView.height); y<yEnd; ++y) {
-					var tile = this.mapView.get(x,y);
-					if(!tile)
-						continue;
-					var terrain = tile.terrain;
-					var fill = ('color' in tile) ? tile.color : MD.Terrain[terrain].color;
-					var cx = (x-vp.x)*this.cellWidth+this.offsetX, cy = (y-vp.y)*this.cellHeight+offsetY;
-					if(terrain==MD.OBJ && tile.party && !fastMode) {
-						var strokeStyle = MD.Party[tile.party].color;
-						dc.hex(cx, cy, this.cellRadius-margin-lineWidth/2, { fillStyle:fill, strokeStyle:strokeStyle, lineWidth:lineWidth });
-					}
-					else if(fill && (terrain>=drawWater))
-						dc.hex(cx, cy, this.cellRadius-margin, { fillStyle:fill });
-					if(fogOfWar && this.fov.get(x,y)!==0)
-						fogOfWar.dc.hex(cx*fowScale, cy*fowScale, fowRadius, { fillStyle:'white' });
-				}
-			}
-			if(fogOfWar)
-				dc.drawImage(fogOfWar, 0,0, this.background.width, this.background.height);
+			MapHex.draw(this.background, this.mapView, vp, this.cellMetrics, this.fov, fastMode);
 		}
 		if(fastMode)
 			return;
@@ -812,9 +774,10 @@ client = {
 		if(this.cursor && this.isInsideViewport(this.cursor) && (!this.selUnit || this.cursor.x!=this.selUnit.x || this.cursor.y!=this.selUnit.y)) {
 			var x = this.cursor.x-vp.x;
 			var y = this.cursor.y-vp.y;
-			var offsetY = this.offsetY + ((this.cursor.x%2) ? 0.5*this.cellHeight : 0);
-			var cx=x*this.cellWidth+this.offsetX, cy= y*this.cellHeight+offsetY;
-			var r = 0.5*this.cellHeight-0.5*lineWidth;
+			var offsetY = vp.offsetY + ((this.cursor.x%2) ? 0.5*this.cellMetrics.h : 0);
+			var cx=x*this.cellMetrics.w+vp.offsetX, cy= y*this.cellMetrics.h+offsetY;
+			var lineWidth = this.cellMetrics.r/8;
+			var r = 0.5*this.cellMetrics.h-0.5*lineWidth;
 			var deltaR = 0.07*r*Math.sin(this.time*1.5*Math.PI);
 			dc.circle(cx, cy, r+deltaR, { strokeStyle: 'white', lineWidth:lineWidth });
 		}
