@@ -68,6 +68,8 @@ function Sim(params, callback) {
 
 		var turn = data.turn;
 		var orders = data.orders;
+		if(this.devMode && orders.length==1 && orders[0].type=='forceEvaluate')
+			return this._evaluateSimEvents();
 
 		if(!this._validateOrders(party, orders, turn)) {
 			if(callback)
@@ -85,8 +87,6 @@ function Sim(params, callback) {
 	}
 
 	this._isReadyForEvaluation = function() {
-		if(this.devMode)
-			return true;
 		var tNow = new Date()/1000;
 		if(tNow >= this.turnStartTime+this.timePerTurn)
 			return true;
@@ -222,8 +222,8 @@ function Sim(params, callback) {
 			var fromVisible = fov.get(evt.from_x, evt.from_y)!==0;
 			var toVisible = fov.get(evt.to_x, evt.to_y)!==0;
 
-			if(!fromVisible && toVisible)
-				events.push({type:'contact', x:evt.to_x, y:evt.to_y, party:party, unit:unit.serialize()});
+			if(!fromVisible && toVisible) // insert before move
+				events.splice(events.length-1, 0, {type:'contact', x:evt.from_x, y:evt.from_y, party:party, unit:unit.serialize()});
 			else if(fromVisible && !toVisible)
 				events.push({type:'contactLost', x:evt.from_x, y:evt.from_y, party:party, unit:unit.id});
 		}
@@ -237,7 +237,9 @@ function Sim(params, callback) {
 			switch(order.type) {
 			case 'move': {
 				var unit = this.map.get(order.from_x, order.from_y).unit;
-				if( !this.map.unitMove(unit, { x:order.to_x, y:order.to_y }, events) ) {
+				if( !unit || unit.id != order.unit
+					|| !this.map.unitMove(unit, { x:order.to_x, y:order.to_y }, events) )
+				{
 					console.error('move failed', order);
 					continue;
 				}

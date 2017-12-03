@@ -698,7 +698,9 @@ function Unit(data) {
 			for(var dir=0; dir<6; ++dir) {
 				var pos = map.polar2hex(nb, dir, 1);
 				var nbhTile = nbh.get(pos.x, pos.y);
-				if(nbhTile===null || nbhTile.unit)
+				if(nbhTile===null)
+					continue;
+				if(nbhTile.unit && (!unitsToIgnore || !(nbhTile.unit.id in unitsToIgnore)))
 					continue;
 
 				this.x = pos.x;

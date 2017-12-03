@@ -26,24 +26,24 @@ function Cache(name, sessionId) {
 		this.keys = {};
 	}
 
-	var init = function(self, name, sessionId, storage) {
-		self.storage = storage;
-		self.prefix = name+'_';
-		var keyStr = storage.getItem(self.prefix);
-		self.keys = keyStr ? JSON.parse(keyStr) : {};
+	var init = function(name, sessionId, storage) {
+		this.storage = storage;
+		this.prefix = name+'_';
+		var keyStr = storage.getItem(this.prefix);
+		this.keys = keyStr ? JSON.parse(keyStr) : {};
 		var sessionIdKey = '/sessionId';
 		if(!keyStr)
-			self.setItem(sessionIdKey, sessionId);
+			this.setItem(sessionIdKey, sessionId);
 		else {
-			var storedSessionId = self.getItem(sessionIdKey);
+			var storedSessionId = this.getItem(sessionIdKey);
 			if(storedSessionId != sessionId) {
-				self.clear();
-				self.setItem(sessionIdKey, sessionId);
+				this.clear();
+				this.setItem(sessionIdKey, sessionId);
 			}
 		}
 	}
 	if(localStorage)
-		init(this, name, sessionId, localStorage);
+		init.call(this, name, sessionId, localStorage);
 	else {
 		this.setItem = function(key, value) { }
 		this.getItem = function(key) { }
@@ -58,8 +58,8 @@ function SimProxy(params, callback) {
 	var retryInterval = 5000;
 
 	this.getSimEvents = function(party, params, callback) {
-		if(party!=this.party)
-			return;
+		if(party!=this.credentials.party)
+			return console.error('getSimEvents wrong party. expected:', this.credentials.party,'actual:',party);
 
 		var url = this.userUrl+'/getSimEvents';
 		var cbPoll = function(data, code) {
@@ -95,7 +95,7 @@ function SimProxy(params, callback) {
 		}, this);
 	}
 	this.postOrders = function(party, orders, turn) {
-		if(party!=this.party)
+		if(party!=this.credentials.party)
 			return;
 		var key = '/postOrders';
 		var data = { orders:orders, turn:turn };
@@ -104,7 +104,7 @@ function SimProxy(params, callback) {
 				return this.cache.removeItem(key);
 			else if(code>=400 && code<500) {
 				console.warn('orders rejected.', code, data);
-				client.displayStatus('orders rejected.');
+				this.emit('warn', 'orders rejected.');
 				return this.cache.removeItem(key);
 			}
 			this.cache.setItem(key, orders);
@@ -112,18 +112,17 @@ function SimProxy(params, callback) {
 			setTimeout(function(self) { self.postOrders(party, orders, turn); }, retryInterval, this);
 		}, this);
 	}
-	this.getMatchId = function() { return this.matchId; }
-	this.getUserId = function() { return this.userUrl.substr(this.userUrl.lastIndexOf('/')+1); }
 
 	this._resumeFromCache = function(callback) {
 		var credentials = this.cache ? this.cache.getItem('/credentials') : null;
 		if(!credentials)
-			return client.close();
-		this.userUrl = baseUrl + '/' + credentials.id;
-		this.party = credentials.party;
+			return false;
 
+		this.userUrl = baseUrl + '/' + credentials.id;
+		this.credentials = credentials;
 		if(callback)
 			callback(credentials, this);
+		return true;
 	}
 
 	this._init = function(params, callback) {
@@ -149,7 +148,7 @@ function SimProxy(params, callback) {
 		var self = this;
 		var handleCredentials = function(data) {
 			self.userUrl = baseUrl + '/' + data.id;
-			self.party = data.party;
+			self.credentials = data;
 			console.log('connected to match', data);
 
 			if(!self.cache)
@@ -157,10 +156,10 @@ function SimProxy(params, callback) {
 			else {
 				var orders = self.cache.getItem('/postOrders');
 				if(orders)
-					self.postOrders(self.party, orders);
+					self.postOrders(self.credentials.party, orders);
 			}
 
-			if(localStorage)
+			if(localStorage && params.mode!='AI')
 				localStorage.setItem('pelagium', JSON.stringify({resume:data.id}));
 			self.cache.setItem('/credentials', data);
 			if(callback)
@@ -178,16 +177,14 @@ function SimProxy(params, callback) {
 					msg = 'no connection';
 					break;
 				}
-				client.modalPopup(msg, ['OK'], function(id) {
-					if(self.cache)
-						self._resumeFromCache(callback);
-					else
-						client.close();
-				});
+				if(self._resumeFromCache(callback))
+					self.emit('warn', msg);
+				else
+					self.emit('error', msg);
 				return console.error('connect failed. code:', code, data.error ? data.error : data);
 			}
 
-			var matchId = self.matchId = data.match;
+			var matchId = data.match;
 			if(data.id && ('party' in data))
 				return handleCredentials(data);
 
@@ -195,14 +192,30 @@ function SimProxy(params, callback) {
 				if(code==200)
 					return handleCredentials(data);
 
-				var msg = 'user registration failed';
-				client.modalPopup(msg, ['OK'], function(id) { client.close(); });
+				self.emit('error', 'user registration failed');
 				console.error(msg, 'code:', code, data.error ? data.error : data);
 			});
 		});
 	}
 
+	this.on = function(event, callback) {
+		if(!(event in this.eventListeners))
+			this.eventListeners[event] = [];
+		this.eventListeners[event].push(callback);
+	}
+	this.emit = function(event, data) {
+		[event, '*'].forEach(function(key) {
+			if(key in this.eventListeners) {
+				let callbacks = this.eventListeners[key];
+				for(let i=0; i<callbacks.length; ++i)
+					callbacks[i](event, data);
+			}
+		}, this);
+	}
+
+	this.eventListeners = {};
 	this.cache = null;
 	this.userUrl = '';
+	this.credentials = null;
 	this._init(params, callback);
 }

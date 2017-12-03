@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<HTML>
+	<head>
+		<title>pelagium AI</title>
+		<meta charset="ISO-8859-15">
+		<meta name="author" content="Gerald Franz"/>
+		<meta name="description" content="turn-based online strategy game"/>
+		<meta name="keywords" content="water world,HTML5,javascript"/>
+
+		<meta name="viewport" content="user-scalable=no, width=device-width" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+		<link rel="manifest" href="/static/manifest.json" />
+		<link rel="apple-touch-icon-precomposed" href="/static/icon_island256.png" />
+		<link rel="shortcut icon" href="/static/favicon.ico" />
+		<link href='https://fonts.googleapis.com/css?family=Montserrat:300,600' rel='stylesheet' type='text/css'>
+
+		<style type="text/css">
+html, body {
+	overflow:hidden;
+	height:100%;
+	margin: 0 auto;
+	font-family: sans-serif;
+	font-size: 16px;
+	color:white;
+	background-color:rgb(130,160,200);
+}
+
+#map {
+	width:100%;
+	height:100%;
+}
+#map > canvas {
+	position: absolute;
+	left: 0;
+	top: 0;
+}
+
+#log {
+	position: absolute;
+	left:0;
+	top:24px;
+	z-index:4;
+	width:100%;
+	height:calc(100% - 48px);
+	overflow-y: scroll;
+}
+
+#controls {
+	width:100%;
+	height:24px;
+	position: absolute;
+	left:0;
+	bottom:0;
+	z-index:4;
+	background-color:rgba(0,0,0,0.33);
+}
+#controls span {
+	padding: 0 4px;
+	white-space: nowrap;
+	text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+}
+
+#paneCredentials {
+	position:fixed;
+	top:0;
+	z-index:99;
+	width:100%;
+	background-color:rgba(0,0,0,0.33);
+}
+#paneCredentials input {
+	box-sizing: border-box; -webkit-box-sizing: border-box; -moz-box-sizing: border-box;
+	border:none;
+	margin: 0 1em 0 0.2em;
+	display:inline;
+	font-weight:bold;
+	color:black;
+	background-color:rgba(255,255,255,0.33);
+}
+#paneCredentials label {
+	font-size:71%;
+	font-weight:bold;
+	display:inline;
+}
+		</style>
+
+		<script type="text/javascript" src="/static/masterdata.js"></script>
+		<script type="text/javascript" src="/static/infra.js"></script>
+		<script type="text/javascript" src="/static/shared.js"></script>
+		<script type="text/javascript" src="/static/pathfinder.js"></script>
+		<script type="text/javascript" src="/static/sim_proxy.js"></script>
+		<script type="text/javascript" src="/static/ai.js"></script>
+		<script type="text/javascript">
+window.onerror = function(msg, url, linenumber) {
+	alert('Error message: '+msg+'\nURL: '+url+'\nLine Number: '+linenumber);
+}
+
+const $ = function(pattern) { return document.querySelector(pattern); }
+let app = {
+	client: null,
+	start: function(mode) {
+		let id = $('#code').value;
+		if(!id)
+			return this.error('id required.');
+		this.status(mode+' '+id+'...');
+
+		let params = {
+			cmd: mode,
+			id: id,
+			mode:'AI'
+		};
+		let sim = new SimProxy(params, function(credentials, sim) {
+			let client = app.client = new ClientAI(sim, credentials);
+			$('#code').value = credentials.id;
+			let self = app;
+			client.on('log', function(evt, msg) {
+				if(msg.indexOf('situation received')==0)
+					self.clearLog();
+				self.log(msg);
+			})
+			client.on('error', function(evt, msg) {
+				self.error(msg); })
+		});
+		sim.on('error', function(evt, msg){ app.error('Sim: '+msg); });
+	},
+	clearLog: function() {
+		$('#log').innerHTML = '';
+	},
+	log: function(msg) {
+		this.status(msg);
+		$('#log').innerHTML += msg + '<br/>';
+	},
+	status: function(msg) {
+		$('#status').innerHTML = msg;
+	},
+	error: function(msg) {
+		this.log('ERROR '+msg);
+	}
+};
+		</script>
+	</head>
+
+	<body
+		><div id="paneCredentials"
+			><label for="code">id</label
+			><input type="text" id="code"
+			/><button onclick="app.start('join');">Join</button
+			/><button onclick="app.start('resume');">Resume</button
+		></div
+		><div id="map" style="position:relative;"
+			><canvas id="background" style="z-index:0;"></canvas
+			><canvas id="foreground" style="z-index:1;"></canvas
+		></div
+		><div id="log"
+		></div
+		><div id="controls"
+			><span id="status">messages are displayed here.</span
+		></div
+	></body>
+</html>

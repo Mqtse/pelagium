@@ -96,19 +96,5 @@ var MD = {
 	}
 };
 
-settings = {
-/// interface settings
-	cellHeight:36,
-	scales: [ 18, 26, 36, 52, 72 ],
-	originX:0,
-	originY:0,
-	panMinDelta:4,
-	party:1, // blue
-
-/// simulation settings
-	scenario:'baiazul',
-	timePerTurn: 86400 // 1 day
-};
-
 if(typeof module == 'object' && module.exports)
 	module.exports = MD;

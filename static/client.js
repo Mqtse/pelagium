@@ -178,18 +178,17 @@ function ProductionController(selector, unitColor, callback) {
 
 // --- client ------------------------------------------------------
 client = {
-	init: function(params, sim) {
-		for(var key in settings)
-			this[key] = (key in params) ?
-				isNaN(parseInt(params[key])) ? params[key] : parseInt(params[key])
-				: settings[key];
-
+	settings: {
+		cellHeight:36,
+		scales: [ 18, 26, 36, 52, 72 ]
+	},
+	init: function(credentials, sim) {
 		this.background = document.getElementById('background');
 		this.background.dc = extendCanvasContext(this.background.getContext("2d"));
 		this.foreground = document.getElementById('foreground');
 		this.foreground.dc = extendCanvasContext(this.foreground.getContext("2d"));
 		this.vp = { x:0, y:0, width:1, height:1 };
-		this.cellMetrics = MapHex.calculateCellMetrics(this.cellHeight);
+		this.cellMetrics = MapHex.calculateCellMetrics(this.settings.cellHeight);
 		this.resize();
 
 		var self = this;
@@ -197,6 +196,25 @@ client = {
 		eludi.addPointerEventListener(this.foreground, function(event) { self.handlePointerEvent(event); });
 		eludi.addWheelEventListener(function(event) { self.viewZoomStep(-event.deltaY, event.x, event.y); });
 		eludi.addKeyEventListener(window, function(event) { self.handleKeyEvent(event); });
+
+		this.state = 'init';
+		this.sim = sim;
+		this.credentials = credentials;
+		this.party = credentials.party;
+		this.mapView = null;
+		this.redrawMap = true;
+		this.fov = null; // field of vision
+		this.units = { };
+		this.selUnit = null;
+		this.selection = null;
+		this.cursor = null;
+		this.pointerEventStartTime = 0;
+		this.time = 0;
+		this.tLastUpdate = new Date()/1000.0;
+		this.orders = [];
+		this.simEvents = [];
+		this.turn = 1;
+		this.cache = new Cache('pelagium/client', this.credentials.id);
 
 		this.btnMain = new ButtonController('#toolbar_main', function(evt) { self.handleUIEvent(evt); });
 		this.btnMain.setMode('fwd').setBackground(MD.Party[this.party].color);
@@ -211,28 +229,11 @@ client = {
 		this.toggleToolbar('main');
 		eludi.click2touch();
 
-		this.state = 'init';
-		this.sim = sim;
-		this.mapView = null;
-		this.redrawMap = true;
-		this.fov = null; // field of vision
-		this.units = { };
-		this.selUnit = null;
-		this.selection = null;
-		this.cursor = null;
-		this.pointerEventStartTime = 0;
-		this.time = 0;
-		this.tLastUpdate = new Date()/1000.0;
-		this.orders = [];
-		this.simEvents = [];
-		this.turn = 1;
-		this.cache = new Cache('pelagium/client', this.sim.getUserId());
-
 		sim.getSimEvents(this.party, null, function(data) { self.handleSimEvents(data); });
 		sim.getTerrain(this.party, null, function(data) {
 			self.mapView = new MatrixHex(data);
 			MapHex.finalizeAppearance(self.mapView);
-			this.redrawMap = true;
+			self.redrawMap = true;
 			sim.getSituation(self.party, null, function(data) {
 				self.handleSituation(data);
 				// center view at own units:
@@ -257,9 +258,7 @@ client = {
 
 	close: function(saveMatch) {
 		if(saveMatch && this.state!='over') {
-			var userId = this.sim.getUserId();
-			var self = this;
-			return this.modalPopup('resume id: '+userId, ['OK'], function() {
+			return this.modalPopup('resume id: '+this.credentials.id, ['OK'], function() {
 				eludi.openUrl(baseUrl, {}, false);
 			});
 		}
@@ -427,6 +426,8 @@ client = {
 		switch(event.type) {
 		case 'fwd':
 			return this.dispatchOrders();
+		case 'spinner':
+			return this.sim.postOrders(this.party, [{type:'forceEvaluate'}], this.turn); // only devMode
 		case 'pause':
 			// todo
 			break;
@@ -440,7 +441,7 @@ client = {
 		case "capitulate":
 			return this.capitulate();
 		case "joinCredentials":
-			return this.modalPopup('join id: '+this.sim.getMatchId(), ['OK']);
+			return this.modalPopup('join id: '+this.credentials.match, ['OK']);
 		case 'toggleMenu':
 			return this.toggleMenu();
 		default:
@@ -501,15 +502,15 @@ client = {
 	},
 
 	viewZoomStep: function(delta, centerX, centerY) {
-		var i;
-		for(i=0; i<this.scales.length; ++i) 
-			if(this.cellMetrics.h==this.scales[i])
+		var i, scales = this.settings.scales;
+		for(i=0; i<scales.length; ++i) 
+			if(this.cellMetrics.h==scales[i])
 				break;
 		var scale = this.cellMetrics.h;
 		if(delta<0 && i>0)
-			scale = this.scales[i-1];
-		else if(delta>0 && i+1<this.scales.length)
-			scale = this.scales[i+1];
+			scale = scales[i-1];
+		else if(delta>0 && i+1<scales.length)
+			scale = scales[i+1];
 		if(this.cellMetrics.h != scale) {
 			var factor = scale / this.cellMetrics.h;
 			if(centerX===undefined)
@@ -521,10 +522,11 @@ client = {
 	},
 
 	viewZoom: function(factor, centerX, centerY, deltaX, deltaY) {
+		var scales = this.settings.scales;
 		var scale = factor * this.cellMetrics.h;
-		var scaleMin = this.scales[0], scaleMax = this.scales[this.scales.length-1];
+		var scaleMin = scales[0], scaleMax = scales[scales.length-1];
 		if(scale < scaleMin)
-			scale = this.scales[0];
+			scale = scales[0];
 		else if(scale > scaleMax)
 			scale = scaleMax;
 		if(scale == this.cellMetrics.h)
@@ -574,7 +576,7 @@ client = {
 	},
 
 	selectUnit: function(unit) {
-		if(this.selUnit == unit || (unit && this.party && this.party != unit.party.id) || unit.origin)
+		if(this.selUnit == unit || (unit && this.party != unit.party.id) || unit.origin)
 			return;
 		this.deselectUnit();
 		if(unit) {
@@ -852,28 +854,29 @@ client = {
 	},
 
 	nextSimEvent: function() {
+		var self = this;
 		if(this.state!='over' && this.simEvents.length) {
 			this.selection = null;
-			var self = this;
 			if(!this.applyEvent(this.simEvents.shift()))
 				setTimeout(function() { self.nextSimEvent(); }, 0);
 		}
-		else {
-			var self = this;
-			// todo, roundtrip may be avoided if events are complete
+		else // todo, roundtrip may be avoided if events are complete
 			this.sim.getSituation(this.party, null, function(data) { self.handleSituation(data); });
-		}
 	},
 
 	applyEvent: function(evt) {
+		let unit = ('unit' in evt) ? evt.unit : null;
+		if(unit!==null&&(typeof evt.unit!='object')) {
+			unit = this.units[unit];
+			if(!unit || unit.state=='dead')
+				return console.error('event refers to unknown unit:', evt);
+		}
+
 		var self = this;
 		switch(evt.type) {
 		case 'retreat':
 		case 'move': {
 			console.log('event', evt);
-			var unit = this.units[evt.unit];
-			if(!unit)
-				break;
 			unit.x = evt.from_x;
 			unit.y = evt.from_y;
 
@@ -895,9 +898,6 @@ client = {
 		}
 		case 'support': {
 			console.log('event', evt);
-			var unit = this.units[evt.unit];
-			if(!unit)
-				break;
 			unit.animation = new AnimationSupport(this.time, unit, evt, function(unit) {
 				self.nextSimEvent();
 			});
@@ -914,9 +914,6 @@ client = {
 		}
 		case 'surrender': {
 			console.log('event', evt);
-			var unit = this.units[evt.unit];
-			if(!unit)
-				break;
 			if(unit == this.selUnit)
 				this.selUnit = null;
 
@@ -963,9 +960,9 @@ client = {
 		case 'contactLost': {
 			console.log('event', evt);
 			var tile = this.mapView.get(evt.x, evt.y);
-			if(tile.unit && tile.unit.id === evt.unit.id)
+			if(tile.unit && tile.unit.id === evt.unit)
 				delete tile.unit;
-			delete this.units[evt.unit.id];
+			delete this.units[evt.unit];
 			this.redrawMap = true;
 			return false;
 		}
@@ -998,7 +995,7 @@ client = {
 			this.btnMain.setMode('fwd').setBackground(MD.Party[this.party].color);
 			var msg = 'turn '+this.turn+' '+MD.Party[this.party].name;
 			if(this.turn==1)
-				msg += ' &nbsp; join id: '+this.sim.getMatchId();
+				msg += ' &nbsp; join id: '+this.credentials.match;
 			this.displayStatus(msg);
 			break;
 		}
@@ -1072,9 +1069,11 @@ client = {
 }
 
 function main(params) {
-	var sim = new SimProxy(params, function(data, sim) {
-		for(var key in data)
-			params[key] = data[key];
-		client.init(params, sim);
+	var sim = new SimProxy(params, function(credentials, sim) {
+		client.init(credentials, sim);
 	});
+	sim.on('error', function(evt, msg) {
+		client.modalPopup(msg, ['OK'], function(id) { client.close(); });
+	});
+	sim.on('warn', function(evt, msg) { client.displayStatus(msg); });
 }
