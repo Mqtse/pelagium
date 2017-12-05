@@ -1,6 +1,6 @@
 function PathFinder(map) {
 	/// calculates direct path between two hexagons
-	this.directPath = function (start, dest) {
+	this.directPath = function(start, dest) {
 		let x1=start.x+0.5, y1=start.y+0.5 + (map.hasOffsetY(start.x) ? 0.5 : 0.0);
 		let x2=dest.x+0.5, y2=dest.y+0.5 + (map.hasOffsetY(dest.x) ? 0.5 : 0.0);
 		let targetAngle = Math.atan2(x2-x1,y1-y2);
@@ -10,7 +10,7 @@ function PathFinder(map) {
 		let currSqrDist = map.distCartSqr(curr, dst);
 
 		while((curr.x!=dst.x)||(curr.y!=dst.y)) {
-			path.push( {x:curr.x,y:curr.y} );
+			path.push( {x:curr.x, y:curr.y, cost:path.length*2} );
 			let minSqrDist = currSqrDist;
 			let currMin = curr;
 			let currAngle = 1000;
@@ -36,6 +36,7 @@ function PathFinder(map) {
 			currSqrDist = minSqrDist;
 			curr = currMin;
 		}
+		dst.cost = path.length*2;
 		path.push(dst);
 		return path;
 	}
@@ -55,11 +56,11 @@ function PathFinder(map) {
 	}
 
 	/// calculates fastest path between two hexagons considering movement costs
-	this.fastestPath = function (start, dest, unitMedium) {
+	this.fastestPath = function(start, dest, unitMedium) {
 		if(!map.isInside(start) || !map.isInside(dest))
 			return [];
 		if((dest.x == start.x)&&(dest.y == start.y)) // path finding not necessary
-			return [{x:dest.x,y:dest.y}];
+			return [{x:dest.x, y:dest.y, cost:0}];
 		if(unitMedium==MD.AIR)
 			return MatrixHex.directPath(start, dest);
 
@@ -120,9 +121,35 @@ function PathFinder(map) {
 			}
 		}
 
-		let path = [ {x:dest.x,y:dest.y} ];
-		while(nodes.get(path[0].x,path[0].y).pred)
-			path.unshift(nodes.get(path[0].x,path[0].y).pred);
+		let node = nodes.get(dest.x,dest.y);
+		let path = [ {x:dest.x, y:dest.y, cost:node.cost} ];
+		let pred = node.pred;
+		while(pred) {
+			node = nodes.get(pred.x, pred.y);
+			path.unshift(pred);
+			path[0].cost = node.cost;
+			pred = node.pred;
+		}
 		return path;
+	}
+	this.nearestDestination = function(pos, destinations, unitMedium) {
+		let nearestDest = null;
+		let minDist = Number.MAX_VALUE;
+		for(let i=0; i<destinations.length; ++i) {
+			let dest = destinations[i];
+			let path = this.fastestPath(pos, dest, unitMedium);
+			if(!path.length)
+				continue;
+			let cost = path[path.length-1].cost;
+			if(cost<2*path.length-2) {
+				console.error('implausible cost:', cost, ', path:', path);
+				cost = 2*path.length-2;
+			}
+			if(cost < minDist) {
+				minDist = cost;
+				nearestDest = dest;
+			}
+		}
+		return nearestDest;
 	}
 }

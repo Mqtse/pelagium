@@ -1,3 +1,11 @@
+if(typeof importScripts === 'function') { // webworker
+	importScripts(
+		"/static/masterdata.js",
+		"/static/infra.js",
+		"/static/shared.js",
+		"/static/pathfinder.js",
+		"/static/sim_proxy.js");
+}
 
 let Attitude = {
 	expansive: {
@@ -164,9 +172,9 @@ MissionDefend.checkNeed = function(obj, map, party) {
 	return defenders.slice(0, Math.ceil(attackers.length*1.33));
 }
 
-let ClientAI = function(sim, credentials) {
+let AI = function(sim, credentials) {
 	this.handleTerrain = function(data) {
-		this.emit('log', 'terrain received');
+		console.log('terrain received');
 
 		this.map = new MatrixHex(data);
 		this.objectives = [];
@@ -189,19 +197,19 @@ let ClientAI = function(sim, credentials) {
 		});
 	}
 	this.handleSimEvents = function(events) {
-		this.emit('log', events.length+' sim events received');
 		this.simEvents = events;
-
+		console.groupCollapsed(events.length+' sim events received');
 		for(let i=0; i<events.length; ++i) {
 			let evt = events[i];
 			if(evt.type!='support' && evt.type!='contact')
-				this.emit('log', '&nbsp '+JSON.stringify(evt));
+				console.log(evt);
 			switch(evt.type) {
 			case 'turn':
 				this.turn = evt.turn;
 				break;
 			}
 		}
+		console.groupEnd();
 
 		let self=this;
 		this.sim.getSituation(this.credentials.party, null, function(data) {
@@ -209,7 +217,7 @@ let ClientAI = function(sim, credentials) {
 		});
 	}
 	this.handleSituation = function(data) {
-		this.emit('log', 'situation received, turn '+data.turn);
+		console.log('situation received, turn', data.turn);
 
 		for(let i=0; i<this.map.data.length; ++i) {
 			let tile = this.map.data[i];
@@ -257,16 +265,34 @@ let ClientAI = function(sim, credentials) {
 			let mission = this.missions[id];
 			if(mission.isOver())
 				mission.cleanup();
+			else for(let id in mission.units) {
+				let unit = mission.verifyUnit(id);
+				if(unit)
+					unit.mission = mission.id;
+			}
 		}
 	}
 	this.assignMissions = function() {
+		console.groupCollapsed('assignMissions turn '+this.turn);
+		let expandMissions = [];
+		let availableObjs = [];
+		let availableUnits = [];
+
 		for(let i=0; i<this.objectives.length; ++i) { // new defense missions needed?
 			let obj = this.objectives[i];
 			let defenders = MissionDefend.checkNeed(obj, this.map, this.credentials.party);
-			if(!defenders)
-				continue;
-
 			let missionId = Mission.makeid(obj);
+
+			if(!defenders) { // no defense mission
+				if(obj.party != this.credentials.party) {
+					if(missionId in this.missions)
+						expandMissions.push(this.missions[missionId]);
+					else
+						availableObjs.push(obj);
+				}
+				continue;
+			}
+
 			let mission = this.missions[missionId] = (missionId in this.missions) ?
 				this.missions[missionId] : new MissionDefend(this, this.map, obj.x, obj.y);
 
@@ -282,104 +308,107 @@ let ClientAI = function(sim, credentials) {
 					mission.assignUnit(unit);
 				}
 			}
-			this.emit('log', 'mission '+mission.str());
+			console.log(mission, mission.str());
 		}
 
 		for(let id in this.units) {
 			let unit = this.units[id];
 			if(unit.party.id!=this.credentials.party)
 				continue;
-			if(unit.mission && (unit.mission in this.missions))
-				continue;
+			if(unit.mission) {
+				if(unit.mission in this.missions)
+					continue;
+				else
+					delete unit.mission;
+			}
 
 			// scan for near enemy:
-			let missionAssigned = false;
 			if(unit.type.attack>0) {
 				let fom = unit.getFieldOfMovement(this.map);
 				if(!fom)
 					continue;
-				for(let i=0; i<fom.length && !missionAssigned; ++i) {
+				for(let i=0; i<fom.length && !unit.mission; ++i) {
 					let pos = fom[i];
 					let tile = this.map.get(pos.x, pos.y);
 					if(!tile.unit || tile.unit.party.id==this.credentials.party)
 						continue;
 					let mission = new MissionAttack(this, this.map, pos.x, pos.y);
-					missionAssigned = mission.assignUnit(unit);
-					this.missions[mission.id] = mission;
-					this.emit('log', 'mission '+mission.str());
-				}
-			}
-			if(!missionAssigned) { // scan for nearest objective:
-				let minDist = Number.MAX_VALUE;
-				let nearestObj = null;
-				let shortestPath = null;
-				for(let i=0; i<this.objectives.length; ++i) {
-					let obj = this.objectives[i];
-					if(obj.party == this.credentials.party)
-						continue;
-					let missionId = Mission.makeid(obj);
-					if(this.missions[missionId] && this.missions[missionId].numUnits>=2)
-						continue; // todo, make more flexible
-					let path = this.pathFinder.fastestPath(unit, obj, unit.type.medium);
-					if(!path.length) {
-						console.warn('no path found from', unit.serialize(), 'to', obj);
-						continue;
-					}
-					let currDist = path.length; // todo, inaccurate, consider movement cost!
-					if(currDist < minDist) {
-						minDist = currDist;
-						shortestPath = path;
-						nearestObj = obj;
-					}
-				}
-				if(nearestObj) {
-					let obj = nearestObj;
-					let missionId = Mission.makeid(obj);
-					let mission = (missionId in this.missions) ? this.missions[missionId]
-						: new MissionExpand(this, this.map, obj.x, obj.y);
 					mission.assignUnit(unit);
-					this.missions[missionId] = mission;
-					missionAssigned = true;
-					this.emit('log', 'mission '+mission.str());
+					this.missions[mission.id] = mission;
+					console.log('mission', mission.str());
 				}
 			}
+			if(!unit.mission)
+				availableUnits.push(unit);
 		}
+
+		// define new expand missions:
+		while(availableUnits.length && expandMissions.length<3 && availableObjs.length) {
+			let unit = availableUnits.shift();
+			let obj = this.pathFinder.nearestDestination(unit, availableObjs, unit.type.medium);
+			if(!obj)
+				continue;
+			let mission = new MissionExpand(this, this.map, obj.x, obj.y);
+			this.missions[mission.id] = mission;
+			mission.assignUnit(unit);
+			expandMissions.push(mission);
+			availableObjs.splice(availableObjs.indexOf(obj), 1);
+			console.log('mission', mission.str());
+		}
+
+		// assign available units round-robin to expand missions:
+		let i=0;
+		while(availableUnits.length && expandMissions.length) {
+			let mission = expandMissions[i];
+			let unit = this.pathFinder.nearestDestination(mission, availableUnits, MD.GROUND);
+			if(!unit) {
+				console.error('no available unit found with path to', mission.str());
+				expandMissions.splice(i, 1);
+				continue;
+			}
+			mission.assignUnit(unit);
+			availableUnits.splice(availableUnits.indexOf(unit), 1);
+			if(++i >= expandMissions.length)
+				i%=expandMissions.length;
+		}
+		console.groupEnd();
 	}
-	this.assignProduction = function(obj) {
+
+	this.assignProduction = function(obj, orders) {
 		let buildProb = this.attitude.buildProbability;
 		let sum = 0;
 		for(let id in buildProb)
 			sum += buildProb[id];
 		let score = Math.floor(Math.random()*sum);
 		sum = 0;
+		let unit = '';
 		for(let id in buildProb) {
 			sum += buildProb[id];
-			if(sum>score)
-				return id;
+			if(sum>score) {
+				unit = id;
+				break;
+			}
 		}
+		console.log('production (',obj.x,',',obj.y,') score:', score, 'unit:', unit);
+		orders.push({ type:'production', unit:unit, x:obj.x, y:obj.y });
 	}
 	this.generateOrders = function() {
+		console.groupCollapsed('generateOrders');
 		for(let id in this.objectives) {
 			let obj = this.objectives[id];
 			if(obj.party!=this.credentials.party || obj.progress>0)
 				continue;
-			let unitType = this.assignProduction(obj);
-			let order = { type:'production', unit:unitType, x:obj.x, y:obj.y };
-			console.log(this.attitude.name, order);
+			this.assignProduction(obj, this.orders);
 		}
 		for(let id in this.missions) {
 			let mission = this.missions[id];
 			mission.generateOrders(this.orders);
 		}
+		console.groupEnd();
 	}
 
 	this.dispatchOrders = function() {
 		this.sim.postOrders(this.credentials.party, this.orders, this.turn);
-
-		this.emit('log', this.orders.length+' orders dispatched');
-		for(let i=0; i<this.orders.length; ++i)
-			this.emit('log', '&nbsp '+JSON.stringify(this.orders[i]));
-
 		this.orders = [];
 	}
 
@@ -423,4 +452,24 @@ let ClientAI = function(sim, credentials) {
 
 	let self = this;
 	setTimeout(function() { self.init(); }, 0);
+}
+AI.create = function(cmd, id, callback) {
+	let params = { mode:'AI', cmd:cmd, id:id };
+	let sim = new SimProxy(params, function(credentials, sim) {
+		let ai = AI.instance = new AI(sim, credentials);
+		callback('credentials', credentials);
+		ai.on('error', callback);
+	});
+	sim.on('error', callback);
+}
+
+if(typeof importScripts === 'function') { // webworker
+	onmessage = function(e) {
+		let params = e.data;
+		if(params.cmd=='join' || params.cmd=='resume') {
+			AI.create(params.cmd, params.id, function(evt, data){
+				postMessage({type:evt, data:data });
+			});
+		}
+	}
 }

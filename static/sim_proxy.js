@@ -42,11 +42,11 @@ function Cache(name, sessionId) {
 			}
 		}
 	}
-	if(localStorage)
+	if(typeof localStorage !== 'undefined')
 		init.call(this, name, sessionId, localStorage);
 	else {
 		this.setItem = function(key, value) { }
-		this.getItem = function(key) { }
+		this.getItem = this.removeItem = function(key) { }
 		this.clear = function() { }
 	}
 }
@@ -159,7 +159,7 @@ function SimProxy(params, callback) {
 					self.postOrders(self.credentials.party, orders);
 			}
 
-			if(localStorage && params.mode!='AI')
+			if(typeof localStorage !=='undefined' && params.mode!='AI')
 				localStorage.setItem('pelagium', JSON.stringify({resume:data.id}));
 			self.cache.setItem('/credentials', data);
 			if(callback)

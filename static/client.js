@@ -204,7 +204,7 @@ client = {
 		this.mapView = null;
 		this.redrawMap = true;
 		this.fov = null; // field of vision
-		this.units = { };
+		this.units = {};
 		this.selUnit = null;
 		this.selection = null;
 		this.cursor = null;
@@ -215,6 +215,11 @@ client = {
 		this.simEvents = [];
 		this.turn = 1;
 		this.cache = new Cache('pelagium/client', this.credentials.id);
+		this.workers = [];
+		this.ai = this.cache.getItem('/ai') || {};
+		for(let id in this.ai)
+			this.spawnAI(this.ai[id]);
+
 
 		this.btnMain = new ButtonController('#toolbar_main', function(evt) { self.handleUIEvent(evt); });
 		this.btnMain.setMode('fwd').setBackground(MD.Party[this.party].color);
@@ -442,6 +447,8 @@ client = {
 			return this.capitulate();
 		case "joinCredentials":
 			return this.modalPopup('join id: '+this.credentials.match, ['OK']);
+		case "spawnAI":
+			return this.spawnAI();
 		case 'toggleMenu':
 			return this.toggleMenu();
 		default:
@@ -1025,13 +1032,35 @@ client = {
 		this.state = state;
 	},
 
+	spawnAI: function(id) {
+		let ai = new Worker('/static/ai.js');
+		this.workers.push(ai);
+		let self = this;
+		ai.onmessage = function(msg) {
+			let evt = msg.data.type;
+			let data = msg.data.data;
+			if(evt=='credentials') {
+				self.ai[data.party] = data.id;
+				self.cache.setItem('/ai', self.ai );
+				self.displayStatus('AI opponent has joined as '+MD.Party[data.party].name);
+			}
+			else if(evt=='error') {
+				self.displayStatus('AI ERROR: '+data);
+			}
+		}
+		ai.postMessage({ cmd:id?'resume':'join', id:id?id:this.credentials.match });
+		document.querySelector('li[data-id="spawnAI"]').style.display = 'none';
+		document.querySelector('li[data-id="joinCredentials"]').style.display = 'none';
+		this.toggleMenu(false);
+	},
+
 	displayStatus: function(msg) {
 		document.getElementById("status").innerHTML = msg;
 	},
 	notify: function(msg, duration) {
 		document.getElementById("status").innerHTML = msg;
 		if(duration) {
-			setTimeout(function() { 
+			setTimeout(function() {
 				var elem = document.getElementById("status");
 				if(elem.innerHTML == msg)
 					elem.innerHTML = '';

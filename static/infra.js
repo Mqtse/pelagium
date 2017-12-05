@@ -1,6 +1,6 @@
 // client-side generic utilities
 
-if(!window.requestAnimationFrame) window.requestAnimationFrame = (function(callback) {
+if((typeof window === 'object') && !window.requestAnimationFrame) window.requestAnimationFrame = (function(callback) {
 	return window.webkitRequestAnimationFrame || 
 	window.mozRequestAnimationFrame || 
 	window.oRequestAnimationFrame || 
@@ -99,7 +99,7 @@ http = {
 			}
 			xhr.send( (params && method=='POST') ? this.encodeURI(params) : null );
 		} catch(error) {
-			window.console && console.error(error);
+			console && console.error(error);
 			if(callback)
 				callback.call(self, error, -2);
 			return false;
@@ -122,14 +122,14 @@ eludi = {
 	/// returns URL parameters as map
 	paramsRequest: function() {
 		var map = (typeof params === 'undefined') ? {} : params;
-		if(window.location.protocol!='file:' && sessionStorage && sessionStorage['eludi_paramsRequest']) {
+		if(location.protocol!='file:' && sessionStorage && sessionStorage['eludi_paramsRequest']) {
 			var storedParams = JSON.parse(sessionStorage['eludi_paramsRequest']);
 			for(var key in storedParams)
 				map[key] = storedParams[key];
 			delete sessionStorage['eludi_paramsRequest'];
 		}
-		if(window.location.href.indexOf('?')>=0)
-			window.location.href.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
+		if(location.href.indexOf('?')>=0)
+			location.href.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
 				var v = decodeURIComponent(value);
 				map[key] = (v.charAt(0) in { '[':true, '{':true }) ? JSON.parse(v) : v;
 			});
@@ -324,13 +324,13 @@ eludi = {
 	/// opens another (eludi) url and passes parameters preferably via sessionStorage
 	openUrl: function(url, params, replace) {
 		if(params) {
-			if(window.location.protocol!='file:' && sessionStorage)
+			if(location.protocol!='file:' && sessionStorage)
 				sessionStorage['eludi_paramsRequest']=JSON.stringify(params);
 			else url += '?' + this.encodeURI(params);
 		}
 		if(replace)
-			window.location.replace(url);
-		else window.location.href=url;
+			location.replace(url);
+		else location.href=url;
 	},
 
 }

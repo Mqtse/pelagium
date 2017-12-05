@@ -97,34 +97,19 @@ window.onerror = function(msg, url, linenumber) {
 
 const $ = function(pattern) { return document.querySelector(pattern); }
 let app = {
-	client: null,
 	start: function(mode) {
 		let id = $('#code').value;
 		if(!id)
 			return this.error('id required.');
 		this.status(mode+' '+id+'...');
 
-		let params = {
-			cmd: mode,
-			id: id,
-			mode:'AI'
-		};
-		let sim = new SimProxy(params, function(credentials, sim) {
-			let client = app.client = new ClientAI(sim, credentials);
-			$('#code').value = credentials.id;
-			let self = app;
-			client.on('log', function(evt, msg) {
-				if(msg.indexOf('situation received')==0)
-					self.clearLog();
-				self.log(msg);
-			})
-			client.on('error', function(evt, msg) {
-				self.error(msg); })
+		let self = this;
+		AI.create(mode, id, function(evt, data) {
+			if(evt=='credentials')
+				$('#code').value = data.id;
+			else if(evt=='error')
+				self.error(data);
 		});
-		sim.on('error', function(evt, msg){ app.error('Sim: '+msg); });
-	},
-	clearLog: function() {
-		$('#log').innerHTML = '';
 	},
 	log: function(msg) {
 		this.status(msg);
