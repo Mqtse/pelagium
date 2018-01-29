@@ -25,7 +25,7 @@ function Sim(params, callback) {
 		for(var y=0; y!=pageSz; ++y) for(var x=0; x!=pageSz; ++x) {
 			var tile = this.map.get(x,y);
 			if(this.state!='over' && fov && fov.get(x,y)===0) {  // out of sight
-				if(tile.terrain==MD.OBJ && tile.id in party.knownObjectives)
+				if(tile.terrain==MD.OBJ && (tile.id in party.knownObjectives))
 					objs.push({x:x, y:y, party:party.knownObjectives[tile.id]});
 				continue;
 			}
@@ -658,7 +658,7 @@ function Sim(params, callback) {
 				orders:null, name:MD.Party[key].name,
 				fov:this.map.getFieldOfView(key), knownObjectives:{} };
 			for(var partyId in scenario.starts)
-				parties[key].knownObjectives[scenario.starts[partyId]]=partyId;
+				parties[key].knownObjectives[scenario.starts[partyId]] = parseInt(partyId);
 		}
 		for(var key in scenario.units) {
 			var unit = scenario.units[key];

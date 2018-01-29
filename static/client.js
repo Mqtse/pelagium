@@ -1006,7 +1006,6 @@ client = {
 				msg += ' '+MD.Party[evt.winners[i]].name;
 
 			this.modalPopup(msg, ["OK"]);
-			this.displayStatus('GAME OVER.');
 			return false;
 		}
 		case 'turn': {
@@ -1114,6 +1113,7 @@ client = {
 			document.querySelector('#main_menu > li[data-id="exit"]').style.display = '';
 			document.querySelector('#main_menu > li[data-id="suspend"]').style.display = 'none';
 			document.querySelector('#main_menu > li[data-id="capitulate"]').style.display = 'none';
+			this.displayStatus('GAME OVER.');
 			break;
 		}
 		default:
