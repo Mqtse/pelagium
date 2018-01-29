@@ -52,7 +52,7 @@ function Cache(name, sessionId) {
 }
 
 // --- SimProxy ----------------------------------------------------
-var baseUrl = location.origin + '/pelagium';
+var baseUrl = (location.origin ? location.origin : '') + '/pelagium';
 
 function SimProxy(params, callback) {
 	var retryInterval = 5000;
@@ -71,28 +71,52 @@ function SimProxy(params, callback) {
 		cbPoll(); // initiate long-polling
 	}
 	this.getTerrain = function(party, params, callback) {
-		var key = '/getTerrain';
-		var data = this.cache.getItem(key);
+		let key = '/getTerrain';
+		let data = this.cache.getItem(key);
 		if(data)
-			callback(data);
-		else http.get(this.userUrl+key, params, function(data) {
-			this.cache.setItem(key, data);
-			callback(data);
-		}, this);
-	}
-	this.getSituation = function(party, params, callback) {
-		var key = '/getSituation';
-		http.get(this.userUrl+key, params, function(data, code) {
-			if(code==200 || code==204) {
-				this.cache.setItem(key, data);
-				callback(data);
+			return callback(data);
+
+		let attempt=0, attemptsMax=4;
+		let self = this;
+		let cb = function(data, code) {
+			if(code==200) {
+				self.cache.setItem(key, data);
+				callback(data);	
+			}
+			else if(++attempt <= attemptsMax) {
+				setTimeout(()=>{
+					http.get(self.userUrl+key, params, cb, self);
+				}, 250 * Math.pow(2, attempt));
 			}
 			else {
-				var data = this.cache.getItem(key);
-				if(data)
-					callback(data);
+				console.error(key, 'failed. Code:', code, data);
+				callback();
 			}
-		}, this);
+		}
+		http.get(this.userUrl+key, params, cb, this);
+	}
+	this.getSituation = function(party, params, callback) {
+		let key = '/getSituation';
+		let attempt=0, attemptsMax=4;
+		let self = this;
+
+		let cb = function(data, code) {
+			if(code==200 || code==204) {
+				self.cache.setItem(key, data);
+				callback(data);
+			}
+			else if(++attempt <= attemptsMax) {
+				setTimeout(()=>{
+					http.get(self.userUrl+key, params, cb, self);
+				}, 250 * Math.pow(2, attempt));
+			}
+			else {
+				console.error(key, 'failed. Code:', code, data);
+				let cachedData = self.cache.getItem(key);
+				callback(cachedData);
+			}
+		}
+		http.get(this.userUrl+key, params, cb, this);
 	}
 	this.postOrders = function(party, orders, turn) {
 		if(party!=this.credentials.party)
@@ -109,7 +133,7 @@ function SimProxy(params, callback) {
 			}
 			this.cache.setItem(key, orders);
 			console.warn('posting orders to server failed. Orders are cached locally.')
-			setTimeout(function(self) { self.postOrders(party, orders, turn); }, retryInterval, this);
+			setTimeout(()=>{ this.postOrders(party, orders, turn); }, retryInterval);
 		}, this);
 	}
 
@@ -123,6 +147,26 @@ function SimProxy(params, callback) {
 		if(callback)
 			callback(credentials, this);
 		return true;
+	}
+
+	this._handleCredentials = function(data, mode) {
+		this.userUrl = baseUrl + '/' + data.id;
+		this.credentials = data;
+		console.log('connected to match', data);
+
+		if(!this.cache)
+			this.cache = new Cache('pelagium', data.id);
+		else {
+			var orders = this.cache.getItem('/postOrders');
+			if(orders)
+				this.postOrders(this.credentials.party, orders);
+		}
+
+		if(typeof localStorage !=='undefined' && mode!='AI')
+			localStorage.setItem('pelagium', JSON.stringify({resume:data.id}));
+		this.cache.setItem('/credentials', data);
+		if(callback)
+			callback(data, this);
 	}
 
 	this._init = function(params, callback) {
@@ -141,32 +185,12 @@ function SimProxy(params, callback) {
 				url += '/' + params.id;
 				break;
 			default:
-				return console.error('invalid or missing command:', params.cmd);
+				console.error('invalid or missing command:', params.cmd);
+				return callback();
 		}
 		delete params.id;
 
-		var self = this;
-		var handleCredentials = function(data) {
-			self.userUrl = baseUrl + '/' + data.id;
-			self.credentials = data;
-			console.log('connected to match', data);
-
-			if(!self.cache)
-				self.cache = new Cache('pelagium', data.id);
-			else {
-				var orders = self.cache.getItem('/postOrders');
-				if(orders)
-					self.postOrders(self.credentials.party, orders);
-			}
-
-			if(typeof localStorage !=='undefined' && params.mode!='AI')
-				localStorage.setItem('pelagium', JSON.stringify({resume:data.id}));
-			self.cache.setItem('/credentials', data);
-			if(callback)
-				callback(data, self);
-		}
-
-		http[method](url, params, function(data, code) {
+		http[method](url, params, (data, code)=>{
 			if(code!=200 || !('match' in data)) {
 				var msg = data.error ? data.error : (params.cmd + ' failed.');
 				switch(code) {
@@ -177,22 +201,22 @@ function SimProxy(params, callback) {
 					msg = 'no connection';
 					break;
 				}
-				if(self._resumeFromCache(callback))
-					self.emit('warn', msg);
+				if(this._resumeFromCache(callback))
+					this.emit('warn', msg);
 				else
-					self.emit('error', msg);
-				return console.error('connect failed. code:', code, data.error ? data.error : data);
+					this.emit('error', msg);
+				return console.error('connect failed. code:', code, data.error ? data.error : JSON.stringify(data));
 			}
 
 			var matchId = data.match;
 			if(data.id && ('party' in data))
-				return handleCredentials(data);
+				return this._handleCredentials(data, params.mode);
 
-			http.post(baseUrl+'/'+matchId, params, function(data, code) {
+			http.post(baseUrl+'/'+matchId, params, (data, code)=>{
 				if(code==200)
-					return handleCredentials(data);
+					return this._handleCredentials(data, params.mode);
 
-				self.emit('error', 'user registration failed');
+				this.emit('error', 'user registration failed');
 				console.error(msg, 'code:', code, data.error ? data.error : data);
 			});
 		});

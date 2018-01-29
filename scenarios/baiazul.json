@@ -16,7 +16,7 @@
 		{"type":"art", "party":1, "x":6, "y":13},
 		{"type":"art", "party":1, "x":5, "y":13},
 		{"type":"inf", "party":1, "x":7, "y":12},
-		{"type":"kv", "party":1, "x":21, "y":15},
+		{"type":"kv", "party":1, "x":8, "y":15},
 		{"type":"kv", "party":1, "x":7, "y":15},
 		{"type":"kv", "party":2, "x":22, "y":15},
 		{"type":"kv", "party":2, "x":22, "y":18},

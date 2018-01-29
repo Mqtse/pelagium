@@ -1,0 +1,32 @@
+{
+	"$schema": "http://json-schema.org/draft-04/schema#",
+	"$version":0.1,
+
+	"postOrders":{
+		"type":"object",
+		"properties":{
+			"turn":{ "type":["integer","string"] },
+			"orders":{
+				"type":"array",
+				"items":{
+					"type":"object",
+					"properties": {
+						"type":{
+							"type":"string",
+							"enum":["capitulate", "move", "production", "forceEvaluate"]
+						},
+						"unit":{ "type":["integer","string"] },
+						"x":{ "type":"integer" },
+						"y":{ "type":"integer" },
+						"from_x":{ "type":"integer" },
+						"from_y":{ "type":"integer" },
+						"to_x":{ "type":"integer" },
+						"to_y":{ "type":"integer" }
+					},
+					"required": ["type"]
+				}
+			}
+		},
+		"required":["turn", "orders"]
+	}
+}

@@ -95,6 +95,8 @@ http = {
 				var response = (xhr.status==-1 || xhr.status==204) ? null
 					: (xhr.contentType=='application/json' || (('getResponseHeader' in xhr) && xhr.getResponseHeader('Content-Type')=='application/json'))
 					? JSON.parse(xhr.responseText) : xhr.responseText;
+				if(event.type == 'error')
+					console.error(url, event);
 				callback.call(self, response, status );
 			}
 			xhr.send( (params && method=='POST') ? this.encodeURI(params) : null );

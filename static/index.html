@@ -11,10 +11,11 @@
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="white" />
 		<link rel="apple-touch-icon-precomposed" href="/static/icon_island256.png" />
+		<link rel="icon" sizes="192x192" href="/static/icon_island192.png" />
 		<link rel="shortcut icon" href="/static/favicon.ico" />
 		<link rel="manifest" href="/static/manifest.json" />
-		<link href='https://fonts.googleapis.com/css?family=Montserrat:300,600' rel='stylesheet' type='text/css'>
-
+		<link href='/static/fonts.css' rel='stylesheet' type='text/css'>
+		
 		<style type="text/css">
 html, body {
 	overflow:hidden;
@@ -129,6 +130,50 @@ ul#scenarios {
 }
 #custom_scenario svg:hover { opacity:1.0; }
 
+#stats {
+	width:75vw;
+	overflow-x:scroll;
+	white-space: nowrap;
+	font-size: 50%;
+	font-weight: bold;
+	text-align: center;
+	background-color: rgba(201,219,207, 0.5);
+}
+.stats_cell {
+	display: inline-block;
+	position: relative;
+	width:16vw;
+	height: 1em;
+	margin:0.2em;
+	padding:0.1em 0.5em;
+}
+.stats_figure {
+	position:absolute;
+	top:0;
+	width:100%;
+	height:100%;
+	z-index: 2;
+	background-color: rgba(0,0,0,0.25);
+}
+.stats_caption {
+	position:absolute;
+	top:0;
+	width:100%;
+	height:100%;
+	z-index: 0;
+	color: rgba(0,0,0,0.5);
+}
+.stats_bar {
+	position:absolute;
+	top:0;
+	height:100%;
+	z-index:1;
+	opacity: 0.5;
+}
+#stats > div > div:first-child {
+	width: 25vw;
+	text-align: left;
+}
 		</style>
 
 		<script type="text/javascript" src="/static/infra.js"></script>
@@ -136,8 +181,40 @@ ul#scenarios {
 		<script type="text/javascript" src="/static/masterdata.js"></script>
 		<script type="text/javascript" src="/static/shared.js"></script>
 		<script type="text/javascript">
-window.onerror=function(msg, url, linenumber) {
-	alert('Error message: '+msg+'\nURL: '+url+'\nLine Number: '+linenumber);
+let StatsTable = function(table) {
+	this.colName = function(col, value) {
+		return this.set(0, col, value)
+	}
+	this.rowName = function(row, value) {
+		return this.set(row, 0, value);
+	}
+	this.set = function(row, col, value) {
+		while(table.children.length <= row)
+			table.appendChild(document.createElement('div'));
+		let tr = table.children[row];
+		while(tr.children.length <= col) {
+			let td = document.createElement('div');
+			td.className = 'stats_cell';
+			tr.appendChild(td);
+			let div = document.createElement('div');
+			div.className = (row>0 && col>0) ? 'stats_figure' : 'stats_caption';
+			td.appendChild(div);
+		}
+		let td = tr.children[col];
+		td.lastChild.innerHTML = value;
+		return this;
+	}
+	this.progress = function(row, col, fraction, color, opacity) {
+		let td = table.children[row].children[col];
+		if(td.children.length==1)
+			td.insertBefore(document.createElement('div'), td.firstChild);
+		let bar = td.firstChild;
+		bar.className = 'stats_bar';
+		bar.innerHTML = '&nbsp;';
+		bar.style.width = (100*fraction)+'%';
+		bar.style.backgroundColor = color;
+		return this;
+	}
 }
 
 app = {
@@ -152,8 +229,11 @@ app = {
 		}
 		return true;
 	},
+	openUrl: function(url, params) {
+		eludi.openUrl(url, params, false);
+	},
 	//--- specific functionality ---
-	init: function() {
+	init: function(params) {
 		if(localStorage && localStorage.pelagium) {
 			var settings = JSON.parse(localStorage.pelagium);
 			if(settings.resume)
@@ -165,6 +245,12 @@ app = {
 			this.addScenarios(data);
 		}, this);
 		eludi.click2touch();
+
+		if(params.screen) {
+			this.screen(params.screen);
+			if(typeof this[params.screen] == 'function')
+				this[params.screen](params);
+		}
 	},
 	addScenarios: function(data) {
 		var parent =  document.getElementById("scenarios");
@@ -218,28 +304,74 @@ app = {
 			scenario = document.getElementById("scenario_id").value;
 		if(scenario)
 			params.scenario = scenario;
-		eludi.openUrl('/static/pelagium.html', params, false);
+		this.openUrl('/static/pelagium.html', params);
 	},
 	resume: function() {
 		var id = document.getElementById("resume_id").value.toUpperCase();
 		if(id.length)
-			eludi.openUrl('/static/pelagium.html', {cmd:'resume', id:id}, false);
+			this.openUrl('/static/pelagium.html', {cmd:'resume', id:id});
 	},
 	join: function() {
 		if(!navigator.onLine)
 			return alert('server connection required for joining a game');
 		var id = document.getElementById("join_id").value.toUpperCase();
 		if(id.length)
-			eludi.openUrl('/static/pelagium.html', {cmd:'join', id:id}, false);
+			this.openUrl('/static/pelagium.html', {cmd:'join', id:id});
+	},
+	over: function(params) {
+		let isWinner = false;
+		for(let i=0; i<params.winners.length && !isWinner; ++i)
+			if(params.winners[i]==params.party)
+				isWinner = true;
+		if(isWinner) {
+			document.querySelector("#h_game_over").style.display = 'none';
+			document.querySelector("#h_victory").style.display = '';
+		}
+
+		let maxValue = function(obj, key) {
+			let value = Number.MIN_VALUE;
+			for(let id in obj)
+				value = Math.max(obj[id][key], value);
+			return value;
+		}
+
+		let table = new StatsTable(document.querySelector("#stats"));
+		table.rowName(1, "objectives").rowName(2, "units").rowName(3, "units built")
+			.rowName(4, "battles won").rowName(5, "odds").rowName(6, "score");
+
+		for(let id in params.stats) {
+			let party = params.stats[id];
+			party.score = party.objectives*100 + party.units*10 + party.victories * 20;
+		}
+
+		let maxObjectives = maxValue(params.stats, 'objectives');
+		let maxUnits = maxValue(params.stats, 'units');
+		let maxUnitsBuilt = maxValue(params.stats, 'unitsBuilt');
+		let maxScore =  maxValue(params.stats, 'score');
+		let opacity = 0.5;
+
+		for(let id in params.stats) {
+			let party = params.stats[id];
+			table.colName(id, MD.Party[id].name);
+			table.set(1, id, party.objectives).progress(1, id, party.objectives/maxObjectives, MD.Party[id].color, opacity);
+			table.set(2, id, party.units).progress(2, id, party.units/maxUnits, MD.Party[id].color, opacity);
+			table.set(3, id, party.unitsBuilt).progress(3, id, party.unitsBuilt/maxUnitsBuilt, MD.Party[id].color, opacity);
+			table.set(4, id, party.victories).progress(4, id, party.victories/(party.victories+party.defeats), MD.Party[id].color, opacity);
+			table.set(5, id, party.odds.toFixed(2)).progress(5, id, party.odds, MD.Party[id].color, opacity);
+			table.set(6, id, party.score).progress(6, id, party.score/maxScore, MD.Party[id].color, opacity);
+		}
 	},
 	close: function() {
 		window.close();
 	}
 }
+document.addEventListener("DOMContentLoaded", function() {
+	app.init(eludi.paramsRequest());
+});
 		</script>
 	</head>
 
-	<body onload="app.init();">
+	<body>
 		<div id="screens"
 			><ul id="screen_main"
 				><li class="l10n" onclick="app.screen('resume');">resume game</li
@@ -284,6 +416,15 @@ app = {
 				></ul
 				><ul
 					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
+				></ul
+			></div
+
+			><div id="screen_over" style="display:none;"
+				><h2 id="h_game_over" class="l10n">game over.</h2
+				><h2 id="h_victory" class="l10n" style="display:none;">victory!</h2
+				><div id="stats"></div
+				><ul
+					><li onclick="app.screen('main');"><span class ="l10n">continue</span></li
 				></ul
 			></div
 		></div

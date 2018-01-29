@@ -432,6 +432,7 @@ function MapHex(params) {
 	}
 
 	this.createUnits = function(page, objectives, starts) {
+		params.units = [];
 		// determine minimum number of adjacent land tiles:
 		var numUnitsMax = 6;
 		for(var party in params.starts) {
@@ -457,13 +458,14 @@ function MapHex(params) {
 				var tile = page.get(pos.x, pos.y);
 				if(tile.terrain <= MD.WATER)
 					continue;
-				var type;
+				var unit = {type:null, party:party, x:pos.x, y:pos.y};
 				switch(numUnits%3) {
-				case 0: type='inf'; break;
-				case 1: type='kv'; break;
-				case 2: type='art'; break;
+				case 0: unit.type='inf'; break;
+				case 1: unit.type='kv'; break;
+				case 2: unit.type='art'; break;
 				}
-				this.unitAdd({type:type, party:party, x:pos.x, y:pos.y}, page);
+				this.unitAdd(unit, page);
+				params.units.push(unit);
 				++numUnits;
 			}
 		}
@@ -594,7 +596,6 @@ MapHex.draw = function(canvas, map, vp, cellMetrics, fieldOfView, fastMode) {
 	var lineWidth = Math.max(cellMetrics.r/8, 1.5);
 
 	var dc = canvas.getContext('2d');
-	dc.clearRect(0 , 0 , canvas.width, canvas.height);
 	if(fieldOfView && !fastMode) { // fog of war
 		fogOfWar = document.createElement('canvas');
 		var width = fogOfWar.width = canvas.width*fowScale;

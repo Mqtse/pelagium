@@ -5,7 +5,7 @@
 		<meta charset="ISO-8859-15">
 		<meta name="author" content="Gerald Franz"/>
 		<meta name="description" content="turn-based online strategy game"/>
-		<meta name="keywords" content="water world,HTML5,javascript"/>
+		<meta name="keywords" content="water world,HTML5,tbs"/>
 
 		<meta name="viewport" content="user-scalable=no, width=device-width" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
@@ -13,7 +13,7 @@
 		<link rel="manifest" href="/static/manifest.json" />
 		<link rel="apple-touch-icon-precomposed" href="/static/icon_island256.png" />
 		<link rel="shortcut icon" href="/static/favicon.ico" />
-		<link href='https://fonts.googleapis.com/css?family=Montserrat:300,600' rel='stylesheet' type='text/css'>
+		<link href='/static/fonts.css' rel='stylesheet' type='text/css'>
 
 		<style type="text/css">
 html, body {
@@ -198,7 +198,7 @@ window.onerror=function(msg, url, linenumber) {
 		<script type="text/javascript" src="/static/client.js"></script>
 	</head>
 
-	<body onload="main(eludi.paramsRequest());">
+	<body>
 		<div id="mapView" style="position:relative;"
 			><canvas id="background" style="z-index:0;"></canvas
 			><canvas id="foreground" style="z-index:1;"></canvas
@@ -211,9 +211,10 @@ window.onerror=function(msg, url, linenumber) {
 				><span id="status">messages are displayed here.</span
 				><div id="toolbars"
 					><ul id="toolbar_main" class="toolbar"
-						><li data-id="fwd"><svg><path style="fill:white;stroke:none;" d="M 6 4 l0 16 l16 -8 z"></path></svg></li
+						><li data-id="fwd"><svg><path style="fill:white;stroke:none;" d="M 6 4 l 0 16 l 16 -8 z"></path></svg></li
 						><li data-id="pause"><svg style="fill:white;stroke:none;"><rect x="4" y="4" width="6" height="16"></rect><rect x="14" y="4" width="6" height="16"></rect></svg></li
 						><li data-id="spinner"><div></div></li
+						><li data-id="exit"><svg><path style="fill:none;stroke:white;stroke-width:4" d="M 4 4 l 16 16 m 0 -16 l -16 16"></path></svg></li
 					></ul
 					><ul id="toolbar_production" class="toolbar"></ul
 				></div
@@ -227,6 +228,7 @@ window.onerror=function(msg, url, linenumber) {
 					><li data-id="joinCredentials" class="l10n">how to join</li
 					><li data-id="spawnAI" class="l10n">play vs AI</li
 					><li data-id="fullscreen" class="l10n">toggle fullscreen</li
+					><li data-id="exit" class="l10n">exit</li
 				></ul
 			></div
 

@@ -66,23 +66,47 @@ Mission.makeid = function(obj) {return obj.x+'_'+obj.y; }
 
 let MissionExpand = function(ai, map, x,y) {
 	this.generateOrders = function(orders) {
+		// sort units by proximity to obj:
+		let units = [];
 		for(let id in this.units) {
 			let unit = this.verifyUnit(id);
-			if(!unit)
-				continue;
-			let path = ai.pathFinder.fastestPath(unit, this, unit.type.medium);
-			let cost = 0;
-			let dest = null;
-			for(let i = 1; i<path.length && !dest; ++i) {
-				cost += MD.Terrain[map.get(path[i-1].x,path[i-1].y).terrain].move;
-				cost += MD.Terrain[map.get(path[i].x,path[i].y).terrain].move;
-				if(cost >=2*unit.type.move || i+1==path.length)
-					dest = path[i];
-			}
-			let order = { type:'move', unit:id, from_x:unit.x, from_y:unit.y, to_x:dest.x, to_y:dest.y };
-			console.log(this.type, order);
-			orders.push(order);
+			if(unit)
+				units.push(unit);
 		}
+		units.sort((a,b) => {
+			let aDist = this.distMap.get(a.x, a.y);
+			let bDist = this.distMap.get(b.x, b.y);
+			return aDist - bDist;
+		});
+		let unitsToIgnore = {};
+		let occupiedTiles = new MatrixSparse(false);
+		units.forEach((unit)=>{
+			let fom = unit.getFieldOfMovement(map, unitsToIgnore);
+			if(!fom)
+				return;
+			// find tile in fom with lowest distance:
+			let distMin = Number.MAX_VALUE;
+			let dest = null;
+			fom.forEach((pos)=>{
+				let dist = this.distMap.get(pos.x, pos.y);
+				if(dist>distMin || occupiedTiles.get(pos.x, pos.y))
+					return;
+				if(!unit.type.attack) {
+					let unit = map.get(pos.x, pos.y).unit;
+					if(unit)
+						return;
+				}
+				distMin = dist;
+				dest = pos;
+			});
+			if(dest) {
+				let order = { type:'move', unit:unit.id, from_x:unit.x, from_y:unit.y, to_x:dest.x, to_y:dest.y };
+				console.log(this.type, order);
+				orders.push(order);
+				unitsToIgnore[unit.id]=true;
+				occupiedTiles.set(dest.x, dest.y, true);
+			}
+		});
 	}
 	this.isOver = function() {
 		let tile = map.get(this.x, this.y);
@@ -97,6 +121,7 @@ let MissionExpand = function(ai, map, x,y) {
 		return true;
 	}
 	Mission.call(this, 'expand', ai, map, x, y);
+	this.distMap = ai.pathFinder.distanceMap(this, MD.GROUND);
 }
 MissionExpand.prototype = Object.create(Mission.prototype);
 MissionExpand.prototype.constructor = MissionExpand;
@@ -191,9 +216,8 @@ let AI = function(sim, credentials) {
 		}
 
 		this.pathFinder = new PathFinder(this.map);
-		let self = this;
-		this.sim.getSituation(this.credentials.party, null, function(data) {
-			self.handleSituation(data);
+		this.sim.getSituation(this.credentials.party, null, (data)=>{
+			this.handleSituation(data);
 		});
 	}
 	this.handleSimEvents = function(events) {
@@ -201,19 +225,25 @@ let AI = function(sim, credentials) {
 		console.groupCollapsed(events.length+' sim events received');
 		for(let i=0; i<events.length; ++i) {
 			let evt = events[i];
-			if(evt.type!='support' && evt.type!='contact')
-				console.log(evt);
+			if(evt.category == 'presence')
+				continue; // ignore
+
 			switch(evt.type) {
 			case 'turn':
-				this.turn = evt.turn;
+				this.turn = parseInt(evt.turn);
 				break;
+			case 'gameOver':
+				
+			case 'support':
+			case 'contact':
+				continue; // ignore
 			}
+			console.log(evt);
 		}
 		console.groupEnd();
 
-		let self=this;
-		this.sim.getSituation(this.credentials.party, null, function(data) {
-			self.handleSituation(data);
+		this.sim.getSituation(this.credentials.party, null, (data)=>{
+			this.handleSituation(data);
 		});
 	}
 	this.handleSituation = function(data) {
@@ -248,12 +278,14 @@ let AI = function(sim, credentials) {
 		}
 
 		this.fov = new MatrixHex(data.fov);
-		this.turn = data.turn;
-		let self = this;
+		this.turn = parseInt(data.turn);
+		this.state = data.state;
 		if(!data.ordersReceived)
-			setTimeout(function() { self.update(); }, 1000);
+			setTimeout(()=>{ this.update(); }, 1000);
 	}
 	this.update = function() { // main method
+		if(this.state=='over')
+			return;
 		//this.updatePolicy();
 		this.cleanupMissions();
 		this.assignMissions();
@@ -413,11 +445,10 @@ let AI = function(sim, credentials) {
 	}
 
 	this.init = function() {
-		let self = this;
-		this.sim.getSimEvents(this.credentials.party, null, function(data) {
-			self.handleSimEvents(data); });
-		this.sim.getTerrain(this.credentials.party, null, function(data) {
-			self.handleTerrain(data);
+		this.sim.getSimEvents(this.credentials.party, null, (data)=>{
+			this.handleSimEvents(data); });
+		this.sim.getTerrain(this.credentials.party, null, (data)=>{
+			this.handleTerrain(data);
 		});
 	}
 
@@ -427,16 +458,16 @@ let AI = function(sim, credentials) {
 		this.eventListeners[event].push(callback);
 	}
 	this.emit = function(event, data) {
-		[event, '*'].forEach(function(key) {
+		[event, '*'].forEach((key)=>{
 			if(key in this.eventListeners) {
 				let callbacks = this.eventListeners[key];
 				for(let i=0; i<callbacks.length; ++i)
 					callbacks[i](event, data);
 			}
-		}, this);
+		});
 	}
-	this.eventListeners = {};
 
+	this.state = 'init';
 	this.sim = sim;
 	this.map = null;
 	this.pathFinder = null;
@@ -449,13 +480,13 @@ let AI = function(sim, credentials) {
 	this.turn = -1;
 	this.credentials = credentials;
 	this.attitude = Attitude.expansive;
+	this.eventListeners = {};
 
-	let self = this;
-	setTimeout(function() { self.init(); }, 0);
+	setTimeout(()=>{ this.init(); }, 0);
 }
 AI.create = function(cmd, id, callback) {
-	let params = { mode:'AI', cmd:cmd, id:id };
-	let sim = new SimProxy(params, function(credentials, sim) {
+	let params = { mode:'AI', cmd:cmd, id:id, name:'AI' };
+	let sim = new SimProxy(params, (credentials, sim)=>{
 		let ai = AI.instance = new AI(sim, credentials);
 		callback('credentials', credentials);
 		ai.on('error', callback);
@@ -467,8 +498,8 @@ if(typeof importScripts === 'function') { // webworker
 	onmessage = function(e) {
 		let params = e.data;
 		if(params.cmd=='join' || params.cmd=='resume') {
-			AI.create(params.cmd, params.id, function(evt, data){
-				postMessage({type:evt, data:data });
+			AI.create(params.cmd, params.id, (evt, data)=>{
+				postMessage({ type:evt, data:data });
 			});
 		}
 	}

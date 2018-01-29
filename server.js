@@ -2,16 +2,18 @@ var qs = require('querystring');
 
 var httpUtils = require('./httpUtils');
 var Sim = require('./sim');
-var Storage = require('./DiskStorage');
+const Storage = require('./DiskStorage');
+const JsonValidator = require('./JsonSchemaValidator')
 
-var cfg = {
-	host:'0.0.0.0',
+let cfg = {
+	ip:'0.0.0.0',
 	port:1771,
 	devMode: 1,
 	gcInterval: 60*60*12,
 	matchTimeout: 60*60*24*3,
 	matchOverTimeout: 60*60*24,
-	persistence:false,
+	persistence: false,
+	sslPath: false,
 	scenarios: 'scenarios'
 }
 httpUtils.parseArgs(process.argv.slice(2), cfg);
@@ -86,6 +88,14 @@ function ServerPelagium(topLevelPath, persistence) {
 		return { sim:match.sim._serialize(), users:Array.from(match.users.entries()) };
 	}
 
+	this.getParties = function(match) {
+		let parties = {};
+		match.users.forEach((value, key)=>{
+			parties[value.party] = value.name ? value.name : '';
+		});
+		return parties;
+	}
+
 	this.userCreate = function(match, params) {
 		var numPlayersMax = match.sim.numParties;
 		var numPlayers = match.users.size;
@@ -102,8 +112,8 @@ function ServerPelagium(topLevelPath, persistence) {
 		this.matches.set( user.id, match );
 
 		console.log('match', match.id, 'new party:', user);
-		// todo: Sim and coplayers should be informed that another player has joined
-		return [ 200, { match:match.id, id:user.id, party:user.party } ];
+		match.sim._postPresenceEvent(user.party, 'join', params.name ? {name:params.name} : undefined);
+		return [ 200, { match:match.id, id:user.id, party:user.party, parties:this.getParties(match) } ];
 	}
 
 	this.resumeFrom = function(storage) {
@@ -169,7 +179,9 @@ function ServerPelagium(topLevelPath, persistence) {
 					return respond(resp, 404, 'player not found');
 				var user = match.users.get(id);
 				console.log('match', match.id, 'reconnect:', user);
-				return respond(resp, 200, { match:match.id, id:user.id, party:user.party });
+				match.sim._postPresenceEvent(user.party, 'reconnect');
+				return respond(resp, 200, { match:match.id, id:user.id,
+					party:user.party, parties:this.getParties(match) });
 			}
 			if(method=='POST') { // join
 				if(!match || id!=match.id)
@@ -193,7 +205,12 @@ function ServerPelagium(topLevelPath, persistence) {
 		if(!cmd || cmd[0]=='_' || !(cmd in sim) || (typeof sim[cmd]!='function'))
 			return respond(resp, 405, 'invalid command');
 
-		console.log('<<', cmd, user.party, params)
+		console.log('<<', cmd, user.party, params);
+		if(this.validator.has(cmd)) {
+			let result = this.validator.validate(cmd, params);
+			if(result!==true)
+				return respond(resp, result[0], result[1]);
+		}
 		if(match.sim[cmd](user.party, params, function(data, code) {
 			if((data!==null) && (typeof data == 'object') && ('serialize' in data))
 				data = data.serialize();
@@ -207,6 +224,7 @@ function ServerPelagium(topLevelPath, persistence) {
 	this.matches = new Map();
 	this.totalMatchCount = 0;
 	this.currMatchCount = 0;
+	this.validator = new JsonValidator(require('./pelagium.schema.json'));
 	this.startTime = new Date();
 	if(persistence) {
 		this.storage = new Storage(persistence);
@@ -220,13 +238,14 @@ var serverPelagium = new ServerPelagium('pelagium', cfg.persistence);
 
 //------------------------------------------------------------------
 
-var server = httpUtils.createServer(cfg.host, cfg.port, function(req, resp, url) {
+var server = httpUtils.createServer(cfg, function(req, resp, url) {
 	switch(url.path[0]) { // toplevel services:
 	case 'ping':
 		return httpUtils.respond(resp, 200, 'pong');
 	case serverPelagium.path:
 		return serverPelagium.handleRequest(req.method, url.path, url.query, resp);
 	case 'static':
+	case 'labs':
 		if(url.path.length==2)
 			return httpUtils.serveStatic(resp, url.path[1], __dirname+'/'+url.path[0]);
 	case 'info':

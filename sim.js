@@ -24,7 +24,7 @@ function Sim(params, callback) {
 
 		for(var y=0; y!=pageSz; ++y) for(var x=0; x!=pageSz; ++x) {
 			var tile = this.map.get(x,y);
-			if(fov && fov.get(x,y)===0) {  // out of sight
+			if(this.state!='over' && fov && fov.get(x,y)===0) {  // out of sight
 				if(tile.terrain==MD.OBJ && tile.id in party.knownObjectives)
 					objs.push({x:x, y:y, party:party.knownObjectives[tile.id]});
 				continue;
@@ -41,8 +41,12 @@ function Sim(params, callback) {
 				objs.push(obj);
 			}
 		}
-		callback({ units:units, objectives:objs, fov:fov.serialize(true),
-			state:this.state, turn:this.turn, ordersReceived:ordersReceived });
+		let situation = { units:units, objectives:objs, fov:fov.serialize(true),
+			state:this.state, turn:this.turn, ordersReceived:ordersReceived };
+		if(this.outcome)
+			for(let key in this.outcome)
+				situation[key] = this.outcome[key];
+		callback(situation);
 		return false;
 	}
 
@@ -68,7 +72,7 @@ function Sim(params, callback) {
 
 		var turn = data.turn;
 		var orders = data.orders;
-		if(this.devMode && orders.length==1 && orders[0].type=='forceEvaluate')
+		if(this.devMode && orders && orders.length==1 && orders[0].type=='forceEvaluate')
 			return this._evaluateSimEvents();
 
 		if(!this._validateOrders(party, orders, turn)) {
@@ -76,7 +80,7 @@ function Sim(params, callback) {
 				callback('orders semantically invalid', 400);
 			return false;
 		}
-		this.parties[party].orders = this._atomizeOrders(orders);
+		this.parties[party].orders = orders = this._atomizeOrders(orders);
 		this.lastUpdateTime = new Date()/1000.0;
 
 		if(this._isReadyForEvaluation())
@@ -86,19 +90,47 @@ function Sim(params, callback) {
 		return true;
 	}
 
+	this._postPresenceEvent = function(partyId, type, params) {
+		let evt = { type:type, category:'presence', party:partyId };
+		if(params) for(let key in params)
+			evt[key] = params[key];
+		if(type=='join') {
+			let party = this.parties[partyId];
+			party.events = null; // events before join do not matter
+			if(params && params.name)
+				party.name = params.name;
+		}
+		this._dispatchEvents([evt]);
+	}
+
+	this._isCapitulation = function(orders) {
+		return Array.isArray(orders) && orders.length==1 && orders[0].type=='capitulate';
+	}
+
 	this._isReadyForEvaluation = function() {
-		var tNow = new Date()/1000;
+		let tNow = new Date()/1000;
 		if(tNow >= this.turnStartTime+this.timePerTurn)
 			return true;
 
-		for(var key in this.parties)
-			if(this.parties[key].orders===null)
-				return false;
-		return true;
+		let allOrdersReceived = true;
+		let capitulateReceived = false;
+		for(let key in this.parties) {
+			let orders = this.parties[key].orders;
+			if(orders===null)
+				allOrdersReceived = false;
+			else if(this._isCapitulation(orders))
+				capitulateReceived = true;
+		}
+		return allOrdersReceived || capitulateReceived;
 	}
 
 	this._validateOrders = function(party, orders, turn) {
-		if(!(party in this.parties) || this.parties[party].orders || turn!=this.turn)
+		if(!(party in this.parties) || turn!=this.turn)
+			return false;
+		if(this._isCapitulation(orders))
+			return orders[0].party == party;
+
+		if(this.parties[party].orders) // orders already received
 			return false;
 		if(!orders.length)
 			return true;
@@ -129,10 +161,6 @@ function Sim(params, callback) {
 					orderValid = true;
 				break;
 			}
-			case 'capitulate':
-				if(order.party == party)
-					orderValid = true
-				break;
 			case 'production': {
 				var tile = this.map.get(order.x, order.y);
 				if(tile && tile.party==party && tile.terrain==MD.OBJ && (order.unit in MD.Unit))
@@ -244,30 +272,29 @@ function Sim(params, callback) {
 					continue;
 				}
 				events.push(order);
-				// TODO update party's fov
+				if((unit.party.id in this.parties) && this.parties[unit.party.id].fov)
+					this.parties[unit.party.id].fov.set(order.to_x, order.to_y, 1);
 				this._evaluteContactEvents(unit, order, events);
 
 				var dest = this.map.get(order.to_x, order.to_y);
 				var opponent = dest.unit;
-				if(opponent && !this._evaluateCombat(unit, { x:order.from_x, y:order.from_y }, opponent, events))
-					continue;
-
-				dest.unit = unit;
-				if(dest.terrain == MD.OBJ && dest.party!=unit.party.id) { // objective captured
-					if(dest.party in this.parties)
-						--this.parties[dest.party].objectives;
-					dest.party = unit.party.id;
-					dest.progress = -1;
-					dest.production = 'inf';
-					if(dest.party in this.parties)
-						++this.parties[dest.party].objectives;
-					events.push({type:'capture', x:order.to_x, y:order.to_y, party:unit.party.id});
+				if(opponent && !this._evaluateCombat(unit, { x:order.from_x, y:order.from_y }, opponent, events)) {
+					if(dest.terrain == MD.OBJ && (unit.party.id in this.parties)) {
+						let party = this.parties[unit.party.id];
+						party.knownObjectives[dest.id] = opponent.party.id;
+					}
+					continue; // attacker lost
 				}
+
+				dest.unit = unit; // attacker won
+				if(dest.terrain == MD.OBJ)
+					this._capture(dest, unit, events);
 				break;
 			}
 			case 'capitulate':
-				events.push(order);
+				events = [order];
 				this.parties[order.party].objectives = 0;
+				i=orders.length;
 				break;
 			case 'production': {
 				var tile = this.map.get(order.x, order.y);
@@ -287,54 +314,71 @@ function Sim(params, callback) {
 			events.push({type:'turn', turn:this.turn+1});
 			this._updateProduction(events);
 		}
-		this._dispatchSimEvents(events);
+		this._dispatchEvents(events);
 		if(isGameOver)
 			return;
 
-		var self = this;
 		++this.turn;
 		this.turnStartTime = this.lastUpdateTime = new Date()/1000.0;
-		setTimeout(function(turn) {
-			if(self.turn!=turn)
+		setTimeout((turn)=>{
+			if(this.turn!=turn)
 				return;
 			console.log("turn", turn, "timeout");
-			self._evaluateSimEvents();
+			this._evaluateSimEvents();
 		}, this.timePerTurn*1000, this.turn);
 		for(var party in this.parties)
 			this.parties[party].fov = this.map.getFieldOfView(party);
 	}
 
-	this._dispatchSimEvents = function(events) {
+	this._dispatchEvents = function(events) {
 		if(!events || !events.length)
 			return;
 		for(var key in this.parties) {
 			var party = this.parties[key];
+			var evts = this._filterEvents(events, key);
+			if(!evts.length)
+				continue;
+
+			if(!(key in this.simEventListeners)) {
+				party.events = evts;
+				continue;
+			}
 			party.events = null;
-			var evts = this._filterSimEvents(events, key); // filter events to be dispatched by the listeners' fov:
-			if(key in this.simEventListeners) {
-				this.simEventListeners[key](evts);
+
+			var listener = this.simEventListeners[key];
+			if(!listener)
+				continue;
+			if(typeof listener === 'function') {
+				listener(evts);
 				delete this.simEventListeners[key];
 			}
-			else
-				party.events = evts;
+			else if(typeof listener === 'object') {
+				if(typeof listener.emit === 'function')
+					listener.emit('events', evts);
+			}
 		}
 		this.simEventCounter += events.length;
 	}
 
-	this._filterSimEvents = function(events, party) {
-		if(!party)
-			return events;
-		
+	this._filterEvents = function(events, party) {
 		var evts = [];
 		var fov = this.parties[party].fov;
 
 		for(var i=0, end=events.length; i!=end; ++i) {
 			var evt = events[i];
-			if('party' in evt) {
-				if (evt.party == party)
+			
+			if(evt.category=='presence') {
+				if(evt.party != party)
 					evts.push(evt);
 				continue;
 			}
+
+			if(('party' in evt) && evt.party == party) {
+				evts.push(evt);
+				continue;
+			}
+			if(evt.type=='contactLost') // sole recipient already handled by preceding cond evt.party == party
+				continue;
 
 			var visible = false, hasLocation = false;
 			if(('x' in evt) && ('y' in evt)) {
@@ -349,8 +393,10 @@ function Sim(params, callback) {
 				visible = fov.get(evt.to_x, evt.to_y)!==0;
 				hasLocation = true;
 			}
-			if(visible || !hasLocation)
+			if(visible || !hasLocation) {
 				evts.push(evt);
+				continue;
+			}
 		}
 		return evts;
 	}
@@ -385,6 +431,7 @@ function Sim(params, callback) {
 		}
 
 		// evaluate result:
+		var odds = attack / (attack+defense);
 		var score = Math.floor(Math.random()*(attack+defense));
 		var event = { type:'combat', attack:attack, defense:defense, score:score, x:defender.x, y:defender.y };
 
@@ -396,12 +443,25 @@ function Sim(params, callback) {
 			looser = defender;
 		}
 		else {
+			odds = 1.0-odds;
 			event.winner = defender.id;
 			event.looser = attacker.id;
 			winner = defender;
 			looser = attacker;
 		}
 		events.push(event);
+
+		// update statistics:
+		let winnerParty = (winner.party.id in this.parties) ? this.parties[winner.party.id] : null;
+		let looserParty = (looser.party.id in this.parties) ? this.parties[looser.party.id] : null;
+		if(winnerParty) {
+			++winnerParty.victories;
+			winnerParty.odds += odds;
+		}
+		if(looserParty) {
+			++looserParty.defeats;
+			looserParty.odds += 1.0-odds;
+		}
 
 		// evaluate surrender or retreat:
 		score = Math.floor(Math.random()*10);
@@ -436,24 +496,45 @@ function Sim(params, callback) {
 				to_x:retreatPos.x, to_y:retreatPos.y, unit:looser.id });
 			var dest = this.map.get(retreatPos.x, retreatPos.y);
 			dest.unit = looser;
+			if(dest.terrain == MD.OBJ)
+				this._capture(dest, looser, events);
 		}
 		else {
 			events.push({ type:'surrender', score:score, x:looser.x, y:looser.y,
 				unit:looser.id });
-			if(looser.party.id in this.parties)
-				--this.parties[looser.party.id].units;
+			if(looserParty)
+				--looserParty.units;
 		}
 		return looser==defender;
+	}
+
+	this._capture = function(dest, unit, events) {
+		if(dest.party==unit.party.id)
+			return;
+		if(dest.party in this.parties) {
+			let party = this.parties[dest.party]; 
+			--party.objectives;
+			party.knownObjectives[dest.id] = unit.party.id;
+		}
+		dest.party = unit.party.id;
+		dest.progress = -1;
+		dest.production = 'inf';
+		if(dest.party in this.parties) {
+			let party = this.parties[dest.party]; 
+			++party.objectives;
+			party.knownObjectives[dest.id] = unit.party.id;
+		}
+		events.push({type:'capture', x:unit.x, y:unit.y, party:unit.party.id});
 	}
 
 	this._isGameOver = function(events) {
 		if(this.state == 'over')
 			return true;
 
-		var loosers = [];
-		var winners = [];
-		for(var key in this.parties) {
-			var party = this.parties[key];
+		let loosers = [];
+		let winners = [];
+		for(let key in this.parties) {
+			let party = this.parties[key];
 			if(!party.objectives)
 				loosers.push(key);
 			else
@@ -461,9 +542,31 @@ function Sim(params, callback) {
 		}
 		if(!loosers.length)
 			return false;
-		events.push({ type:'gameOver', winners:winners, loosers:loosers});
+		if(winners.length>1) { // compare number of objectives:
+			let numObjectivesMax = 0;
+			for(let i=0; i<winners.length; ++i) {
+				let party = this.parties[winners[i]];
+				if(party.objectives > numObjectivesMax)
+					numObjectivesMax = party.objectives;
+			}
+			for(let i = winners.length; i-->0; ) {
+				let party = this.parties[winners[i]];
+				if(party.objectives == numObjectivesMax)
+					continue;
+				loosers.push(winners[i]);
+				winners.splice(i, 1);
+			}
+		}
+		let stats = {};
+		for(let key in this.parties) {
+			let party = this.parties[key];
+			let odds = (party.victories+party.defeats>0) ? party.odds/(party.victories+party.defeats) : 0.0;
+			stats[key] = { objectives:party.objectives, units:party.units, unitsBuilt:party.unitsBuilt,
+				victories:party.victories, defeats:party.defeats, odds:odds }
+		}
+		this.outcome = { winners:winners, loosers:loosers, stats:stats };
+		events.push({ type:'gameOver', winners:winners, loosers:loosers, stats:stats });
 		this.state = 'over';
-		// todo add a timeout (3 days?) after which this match is cleaned up from memory
 		return true;
 	}
 
@@ -494,6 +597,7 @@ function Sim(params, callback) {
 						unit:unit.serialize()});
 					tile.progress = 0;
 					++this.parties[tile.party].units;
+					++this.parties[tile.party].unitsBuilt;
 				}
 			}
 		}
@@ -514,9 +618,11 @@ function Sim(params, callback) {
 		};
 		for(var key in this.parties) {
 			var party = this.parties[key];
-			data.parties[key] = { objectives:party.objectives, units:party.units,
+			data.parties[key] = { objectives:party.objectives, units:party.units, unitsBuilt:party.unitsBuilt,
 				orders:party.orders, knownObjectives:(party.knownObjectives ? party.knownObjectives : {})};
 		}
+		if(this.outcome)
+			data.outcome = this.outcome;
 		return data;
 	}
 	this._deserialize = function(data) {
@@ -534,16 +640,22 @@ function Sim(params, callback) {
 		for(var key in this.parties) {
 			this.parties[key].fov = this.map.getFieldOfView(key);
 			++this.numParties;
+			if(!('unitsBuilt' in this.parties[key]))
+				this.parties[key].unitsBuilt = 0;
 		}
+		if('outcome' in data)
+			this.outcome = data.outcome;
 		this.state = data.state;
 	}
-		
+
 	this._initStats = function(scenario) {
 		var parties = this.parties = {};
 		this.numParties = 0;
 		for(var key in scenario.starts) {
 			++this.numParties;
-			parties[key] = { objectives:1, units:0, orders:null,
+			parties[key] = { objectives:1, units:0, unitsBuilt:0,
+				victories:0, defeats:0, odds:0.0,
+				orders:null, name:MD.Party[key].name,
 				fov:this.map.getFieldOfView(key), knownObjectives:{} };
 			for(var partyId in scenario.starts)
 				parties[key].knownObjectives[scenario.starts[partyId]]=partyId;

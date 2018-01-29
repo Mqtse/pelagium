@@ -152,4 +152,33 @@ function PathFinder(map) {
 		}
 		return nearestDest;
 	}
+
+	this.distanceMap = function(pos, unitMedium) {
+		let open = [ {x:pos.x, y:pos.y} ];
+		let opens = new MatrixHex(map.width, map.height, false);
+		opens.set(pos.x, pos.y, true);
+		let dists = new MatrixHex(map.width, map.height, Number.MAX_VALUE);
+		dists.set(pos.x, pos.y, 0);
+
+		for(let i=0; i<open.length; ++i) {
+			let pos = open[i];
+			opens.set(pos.x, pos.y, false);
+			let dist = dists.get(pos.x, pos.y);
+			for(let dir=0; dir<6; ++dir) {
+				let cost = this.movementCost(pos, dir, unitMedium); // this might be optimized, read values of pos only once
+				if(cost<=0)
+					continue;
+				let nb = map.polar2hex(pos, dir);
+				let nbDist = dists.get(nb.x, nb.y);
+				if(cost+dist>=nbDist)
+					continue;
+				dists.set(nb.x, nb.y, cost+dist);
+				if(!opens.get(nb.x, nb.y)) { // avoid repeated pushes of same pos
+					open.push(nb);
+					opens.set(pos.x, pos.y, true);
+				}
+			}
+		}
+		return dists;
+	}
 }

@@ -199,6 +199,8 @@ client = {
 
 		this.state = 'init';
 		this.sim = sim;
+		this.parties = credentials.parties || {};
+		delete credentials.parties;
 		this.credentials = credentials;
 		this.party = credentials.party;
 		this.mapView = null;
@@ -228,46 +230,43 @@ client = {
 		document.getElementById('btn_menu').addEventListener("click", function(event) {
 			self.handleUIEvent({ type:event.currentTarget.dataset.id }); });
 		if(!document.fullscreenEnabled && !document.webkitFullscreenEnabled)
-			document.querySelector('li[data-id="fullscreen"]').style.display = 'none';
+			document.querySelector('#main_menu > li[data-id="fullscreen"]').style.display = 'none';
+		document.querySelector('#main_menu > li[data-id="exit"]').style.display = 'none';
 		this.toolbarProduction = new ProductionController('#toolbar_production', MD.Party[this.party].color,
 			function(unitType) { if(self.cursor) self.handleProductionInput(unitType, self.cursor.x, self.cursor.y); });
 		this.toggleToolbar('main');
 		eludi.click2touch();
 
-		sim.getSimEvents(this.party, null, function(data) { self.handleSimEvents(data); });
-		sim.getTerrain(this.party, null, function(data) {
-			self.mapView = new MatrixHex(data);
-			MapHex.finalizeAppearance(self.mapView);
-			self.redrawMap = true;
-			sim.getSituation(self.party, null, function(data) {
-				self.handleSituation(data);
-				// center view at own units:
-				var cx=0, cy=0, numUnits=0;
-				for(var id in self.units) {
-					var unit = self.units[id];
-					if(unit.party.id!=self.party)
-						continue;
-					cx += unit.x;
-					cy += unit.y;
-					++numUnits;
-				}
-				if(numUnits) {
-					cx /= numUnits;
-					cy /= numUnits;
-					self.viewCenter(Math.round(cx), Math.round(cy));
-				}
-			});
+		sim.getSimEvents(this.party, null, (data)=>{
+			this.handleExternalEvents(data);
+		});
+		sim.getTerrain(this.party, null, (data)=>{
+			if(!data)
+				return this.modalPopup('no connection', ["OK"], ()=>{ this.close(); } );
+
+			this.mapView = new MatrixHex(data);
+			MapHex.finalizeAppearance(this.mapView);
+			this.redrawMap = true;
+
+			setTimeout(()=>{
+				sim.getSituation(this.party, null, (data)=>{
+					if(!data)
+						return this.modalPopup('no connection', ["OK"], ()=>{ this.close(); } );
+					this.handleSituation(data);
+					this.viewCenterAtOwnUnits();
+				});
+			}, 10);
 		});
 		this.update();
 	},
 
-	close: function(saveMatch) {
+	close: function(saveMatch, params) {
 		if(saveMatch && this.state!='over') {
-			return this.modalPopup('resume id: '+this.credentials.id, ['OK'], function() {
-				eludi.openUrl(baseUrl, {}, false);
+			return this.modalPopup('resume id: '+this.credentials.id, ['OK'], ()=>{
+				eludi.openUrl(baseUrl, params, false);
 			});
 		}
-		eludi.openUrl(baseUrl, {}, false);
+		eludi.openUrl(baseUrl, params, false);
 	},
 
 	resize: function(scaleOnly) {
@@ -445,6 +444,8 @@ client = {
 			return this.close(true);
 		case "capitulate":
 			return this.capitulate();
+		case "exit":
+			return this.close(false, this.outcome);
 		case "joinCredentials":
 			return this.modalPopup('join id: '+this.credentials.match, ['OK']);
 		case "spawnAI":
@@ -572,6 +573,22 @@ client = {
 		this.vp.y = Math.round(y-this.vp.height/2);
 		this.redrawMap = true;
 	},
+	viewCenterAtOwnUnits: function() {
+		var cx=0, cy=0, numUnits=0;
+		for(var id in this.units) {
+			var unit = this.units[id];
+			if(unit.party.id!=this.party)
+				continue;
+			cx += unit.x;
+			cy += unit.y;
+			++numUnits;
+		}
+		if(numUnits) {
+			cx /= numUnits;
+			cy /= numUnits;
+			this.viewCenter(Math.round(cx), Math.round(cy));
+		}
+	},
 
 	isInsideViewport: function(pos, delta) {
 		if(!delta)
@@ -623,6 +640,7 @@ client = {
 		this.orders = [];
 		for(var id in this.units) {
 			var unit = this.units[id];
+			unit.animation = null;
 			if(!unit.origin)
 				continue;
 			unit.x = unit.origin.x;
@@ -647,47 +665,48 @@ client = {
 				tile.progress = 0;
 			}
 			else if(order.type=='move') {
-				var unit = this.mapView.get(order.from_x, order.from_y).unit;
+				var origin = this.mapView.get(order.from_x, order.from_y);
+				var unit = origin.unit;
 				if(!unit || unit.id != order.unit || this.party != unit.party.id)
 					return;
+				delete origin.unit;
+				this.mapView.get(order.to_x, order.to_y).unit = unit;
 				this.displayUnitDestination(unit, order);
 			}
 		}, this);
 	},
 
 	moveUnit: function(unit, x, y) {
+		var path = unit.getPath(this.mapView, x,y);
+		if(!path.length)
+			return;
 		var order = { type:'move', unit:unit.id, from_x:unit.x, from_y:unit.y, to_x:x, to_y:y };
 		this.addOrder(order);
 
 		this.selection = this.selUnit = null;
+		delete this.mapView.get(unit.x, unit.y).unit;
+		this.mapView.get(x, y).unit = unit;
 
 		// animate until unit is drawn at its new destination:
-		var self = this;
-		var path = unit.getPath(this.mapView, x,y);
-		unit.animation = new AnimationMove(this.time, unit, path, function(unit, order) {
-			self.displayUnitDestination(unit, order);
+		unit.animation = new AnimationMove(this.time, unit, path, (unit, order)=>{
+			this.displayUnitDestination(unit, order);
 		}, order);
 	},
 	displayUnitDestination: function(unit, order) {
-		delete this.mapView.get(order.from_x, order.from_y).unit;
 		unit.origin = { x:unit.x, y:unit.y };
 		unit.x = order.to_x;
 		unit.y = order.to_y;
-		this.mapView.get(order.to_x, order.to_y).unit = unit;
 	},
 
 	capitulate: function() {
 		if(this.state == 'over' || this.state=='init')
 			return;
-		var self = this;
-		this.modalPopup("really surrender?", ["yes", "no"], function(result){
+		this.modalPopup("really surrender?", ["yes", "no"], (result)=>{
 			if(result==1)
 				return;
-			self.orders = [{ type:'capitulate', party:self.party }];
-			self.state='input';
-			self.dispatchOrders();
-			self.switchState('over');
-			setTimeout(function() { self.close(); }, 0);
+			this.orders = [{ type:'capitulate', party:this.party }];
+			this.state='input';
+			this.dispatchOrders();
 		});
 	},
 
@@ -706,13 +725,16 @@ client = {
 		var x=(transf.x+cellX-this.vp.x)*this.cellMetrics.w+this.vp.offsetX - w/2;
 		var y=(transf.y+cellY-this.vp.y)*this.cellMetrics.h+this.vp.offsetY + ((cellX%2) ? 0.5*this.cellMetrics.h : 0) - h/2;
 
-		var sprite = document.createElement('canvas'); // todo, maybe prerender all sprites at double resolution?
+		var sprite = document.createElement('canvas');
 		sprite.width = w;
 		sprite.height = h;
 		var sdc = extendCanvasContext(sprite.getContext('2d'));
 		sdc.fillStyle = unit.party.color;
 		sdc.fillRect(0,0, w, h);
-		this.drawUnitSymbol(sdc, unit.type.id, w,h, scale*transf.scx/6, 'white');
+		var fgColor = 'white';
+		if(this.state=='input' && !unit.animation && !unit.origin && unit.party.id==this.party)
+			fgColor = 'rgba(255,255,255,'+Math.min(0.75 + Math.abs(this.time % 1.0 - 0.5), 1.0)+')';
+		this.drawUnitSymbol(sdc, unit.type.id, w,h, scale*transf.scx/6, fgColor);
 
 		dc.save();
 		dc.globalAlpha = transf.opacity;
@@ -753,28 +775,45 @@ client = {
 			{ fillStyle:tile.fillStyle ? tile.fillStyle : 'rgba(0,0,0, 0.33)' });
 	},
 
+	drawTile: function(x, y) {
+		let viewport = { x:x, y:y, width:1, height:1,
+			offsetX:this.vp.offsetX + (x-this.vp.x)*this.cellMetrics.w,
+			offsetY:this.vp.offsetY + (y-this.vp.y)*this.cellMetrics.h };
+		MapHex.draw(this.background, this.mapView, viewport, this.cellMetrics);
+	},
+
 	draw: function() {
 		var fastMode = (this.panning || this.pinch) ? true : false;
 		var vp = this.vp;
 
-		this.foreground.dc.clearRect( 0 , 0 , this.foreground.width, this.foreground.height );
+		this.foreground.dc.clearRect(0, 0, this.foreground.width, this.foreground.height);
 
 		if(this.redrawMap && this.mapView) { // background:
+			if(typeof this.redrawMap === 'object')
+				this.drawTile(this.redrawMap.x, this.redrawMap.y);
+			else {
+				this.background.dc.clearRect(0, 0, this.background.width, this.background.height);
+				MapHex.draw(this.background, this.mapView, vp, this.cellMetrics, this.fov, fastMode);
+			}
 			this.redrawMap = false;
-			MapHex.draw(this.background, this.mapView, vp, this.cellMetrics, this.fov, fastMode);
 		}
 		if(fastMode)
 			return;
 
 		// foreground:
 		dc = this.foreground.dc;
+		let ownUnits = [];
 		for(var id in this.units) {
 			var unit = this.units[id];
-			if(this.isInsideViewport(unit) && unit!=this.selUnit)
-				this.drawUnit(dc, unit);
+			if(this.isInsideViewport(unit)) {
+				if(unit.party.id == this.party)
+					ownUnits.push(unit);
+				else
+					this.drawUnit(dc, unit);
+			}
 		}
-		if(this.selUnit)
-			this.drawUnit(dc, this.selUnit);
+		for(let i=ownUnits.length; i-->0; )
+			this.drawUnit(dc, ownUnits[i]);
 
 		if(this.selection)
 			for(var i=this.selection.length; i--; )
@@ -802,14 +841,22 @@ client = {
 
 		this.tLastUpdate = tNow;
 		this.draw();
-		var self = this;
-		requestAnimationFrame(function() { self.update(); });
+		requestAnimationFrame(()=>{ this.update(); });
 	},
 
-	handleSimEvents: function(events) {
-		for(var i=0; i<events.length; ++i)
-			this.simEvents.push(events[i]);
-		this.switchState('replay');
+	handleExternalEvents: function(events) {
+		let simEventsReceived = false;
+		for(var i=0; i<events.length; ++i) {
+			let evt = events[i];
+			if(evt.category=='presence') {
+				this.handlePresenceEvent(evt);
+				continue;
+			}
+			this.simEvents.push(evt);
+			simEventsReceived = true;
+		}
+		if(simEventsReceived)
+			this.switchState('replay');
 	},
 
 	handleSituation: function(data) {
@@ -843,13 +890,21 @@ client = {
 		this.fov = new MatrixHex(data.fov);
 
 		this.redrawMap = true;
-		this.turn = data.turn;
+		this.turn = parseInt(data.turn);
+		if(this.turn>1)
+			this.hideJoinCredentials();
 		this.restoreOrders();
 
 		if(data.state=='running')
 			this.switchState(data.ordersReceived ? 'waiting' : 'input');
-		else
-			this.switchState(data.state);
+		else {
+			let params;
+			if(data.state=='over' && this.state!='over') {
+				this.modalPopup('GAME OVER.', ["OK"]);
+				params = { winners:data.winners, loosers:data.loosers, stats:data.stats };
+			}
+			this.switchState(data.state, params);
+		}
 	},
 
 	updateProduction: function(numTurns) {
@@ -861,17 +916,16 @@ client = {
 	},
 
 	nextSimEvent: function() {
-		var self = this;
 		if(this.state!='over' && this.simEvents.length) {
 			this.selection = null;
-			if(!this.applyEvent(this.simEvents.shift()))
-				setTimeout(function() { self.nextSimEvent(); }, 0);
+			if(!this.renderSimEvent(this.simEvents.shift()))
+				setTimeout(()=>{ this.nextSimEvent(); }, 0);
 		}
 		else // todo, roundtrip may be avoided if events are complete
-			this.sim.getSituation(this.party, null, function(data) { self.handleSituation(data); });
+			this.sim.getSituation(this.party, null, (data)=>{ this.handleSituation(data); });
 	},
 
-	applyEvent: function(evt) {
+	renderSimEvent: function(evt) {
 		let unit = ('unit' in evt) ? evt.unit : null;
 		if(unit!==null&&(typeof evt.unit!='object')) {
 			unit = this.units[unit];
@@ -879,7 +933,6 @@ client = {
 				return console.error('event refers to unknown unit:', evt);
 		}
 
-		var self = this;
 		switch(evt.type) {
 		case 'retreat':
 		case 'move': {
@@ -894,19 +947,19 @@ client = {
 				this.viewCenter(unit.x, unit.y);
 
 			unit.animation = new AnimationMove(this.time, unit, {x:evt.to_x, y:evt.to_y},
-				function(unit, evt) {
-					delete self.mapView.get(evt.from_x, evt.from_y).unit;
+				(unit, evt)=>{
+					delete this.mapView.get(evt.from_x, evt.from_y).unit;
 					unit.x = evt.to_x;
 					unit.y = evt.to_y;
-					self.mapView.get(unit.x, unit.y).unit = unit;
-					self.nextSimEvent();
+					this.mapView.get(unit.x, unit.y).unit = unit;
+					this.nextSimEvent();
 				}, evt);
 			return true;
 		}
 		case 'support': {
 			console.log('event', evt);
-			unit.animation = new AnimationSupport(this.time, unit, evt, function(unit) {
-				self.nextSimEvent();
+			unit.animation = new AnimationSupport(this.time, unit, evt, unit=>{
+				this.nextSimEvent();
 			});
 			return true;
 		}
@@ -924,9 +977,9 @@ client = {
 			if(unit == this.selUnit)
 				this.selUnit = null;
 
-			unit.animation = new AnimationExplode(this.time, unit, function(unit) {
+			unit.animation = new AnimationExplode(this.time, unit, (unit)=>{
 				unit.state = 'dead';
-				self.nextSimEvent();
+				this.nextSimEvent();
 			});
 			return true;
 		}
@@ -940,28 +993,32 @@ client = {
 
 			if(!this.isInsideViewport(evt, 1))
 				this.viewCenter(evt.x, evt.y);
-			this.redrawMap = true;
+			this.redrawMap = {x:evt.x, y:evt.y};
 			return false;
 		}
 		case 'gameOver': {
 			console.log('event', evt);
-			this.switchState('over');
-			var msg = 'GAME OVER!<br/>And the winner is... '+MD.Party[evt.winners[0]].name;
-			var self = this;
-			this.modalPopup(msg, ["OK"], function() { self.close(); } );
+			this.switchState('over', evt);
+
+			var msg = 'GAME OVER!<br/>And the winner';
+			msg += (evt.winners.length==1) ? ' is...' : 's are...';
+			for(let i=0; i<evt.winners.length; ++i)
+				msg += ' '+MD.Party[evt.winners[i]].name;
+
+			this.modalPopup(msg, ["OK"]);
+			this.displayStatus('GAME OVER.');
 			return false;
 		}
 		case 'turn': {
 			console.log('event', evt);
 			this.updateProduction(evt.turn - this.turn);
-			this.turn = evt.turn;
+			this.turn = parseInt(evt.turn);
 			return false;
 		}
 		case 'contact': {
 			console.log('event', evt);
 			var tile = this.mapView.get(evt.x, evt.y);
 			tile.unit = this.units[evt.unit.id] = new Unit(evt.unit);
-			this.redrawMap = true;
 			return false;
 		}
 		case 'contactLost': {
@@ -970,18 +1027,27 @@ client = {
 			if(tile.unit && tile.unit.id === evt.unit)
 				delete tile.unit;
 			delete this.units[evt.unit];
-			this.redrawMap = true;
 			return false;
 		}
 		case 'capitulate':
 		case 'production':
 		case 'productionBlocked':
 		case 'blocked':
-			// todo
+			break;
 		default:
 			console.warn('unhandled sim event', evt);
 		}
 		return false;
+	},
+
+	handlePresenceEvent: function(evt) {
+		if(evt.type=='join' && !(evt.party in this.parties)) {
+			this.parties[evt.party] = evt.name || '';
+			let name = evt.name || 'opponent';
+			this.displayStatus(name+' has joined as ' + MD.Party[evt.party].name);
+			this.hideJoinCredentials();
+		}
+		console.log('presence event type:', evt.type, 'party:', evt.party);
 	},
 
 	switchState: function(state, params) {
@@ -1001,8 +1067,24 @@ client = {
 				this.cursor = null;
 			this.btnMain.setMode('fwd').setBackground(MD.Party[this.party].color);
 			var msg = 'turn '+this.turn+' '+MD.Party[this.party].name;
-			if(this.turn==1)
-				msg += ' &nbsp; join id: '+this.credentials.match;
+
+			if(this.turn==1) {
+				let numParties = 0;
+				for(let id in this.parties) {
+					if(id == this.credentials.party)
+						continue;
+					msg += (numParties++) ? ', ' : ' &nbsp; co-players:';
+					let name = this.parties[id];
+					if(name.length)
+						msg += ' '+name+' ('+MD.Party[id].name+')';
+					else
+						msg += ' '+MD.Party[id].name;
+				}
+				if(!numParties)
+					msg += ' &nbsp; join id: '+this.credentials.match;
+				else
+					this.hideJoinCredentials();
+			}
 			this.displayStatus(msg);
 			break;
 		}
@@ -1019,11 +1101,19 @@ client = {
 			this.displayStatus('turn '+this.turn);
 			this.nextSimEvent();
 			break;
-		
+
 		case 'over': {
 			this.selUnit = null;
 			if(localStorage)
 				delete localStorage.pelagium;
+			this.outcome = { screen:'over', party:this.credentials.party,
+				winners:params.winners, loosers:params.loosers, stats:params.stats };
+
+			this.btnMain.setMode('exit');
+			this.hideJoinCredentials();
+			document.querySelector('#main_menu > li[data-id="exit"]').style.display = '';
+			document.querySelector('#main_menu > li[data-id="suspend"]').style.display = 'none';
+			document.querySelector('#main_menu > li[data-id="capitulate"]').style.display = 'none';
 			break;
 		}
 		default:
@@ -1035,23 +1125,25 @@ client = {
 	spawnAI: function(id) {
 		let ai = new Worker('/static/ai.js');
 		this.workers.push(ai);
-		let self = this;
-		ai.onmessage = function(msg) {
+		ai.onmessage = (msg)=>{
 			let evt = msg.data.type;
 			let data = msg.data.data;
 			if(evt=='credentials') {
-				self.ai[data.party] = data.id;
-				self.cache.setItem('/ai', self.ai );
-				self.displayStatus('AI opponent has joined as '+MD.Party[data.party].name);
+				this.ai[data.party] = data.id;
+				this.cache.setItem('/ai', this.ai );
+				console.log('AI opponent has joined as '+MD.Party[data.party].name);
 			}
 			else if(evt=='error') {
-				self.displayStatus('AI ERROR: '+data);
+				this.displayStatus('AI ERROR: '+data);
 			}
 		}
 		ai.postMessage({ cmd:id?'resume':'join', id:id?id:this.credentials.match });
-		document.querySelector('li[data-id="spawnAI"]').style.display = 'none';
-		document.querySelector('li[data-id="joinCredentials"]').style.display = 'none';
 		this.toggleMenu(false);
+	},
+
+	hideJoinCredentials: function() {
+		document.querySelector('#main_menu > li[data-id="spawnAI"]').style.display = 'none';
+		document.querySelector('#main_menu > li[data-id="joinCredentials"]').style.display = 'none';
 	},
 
 	displayStatus: function(msg) {
@@ -1098,11 +1190,17 @@ client = {
 }
 
 function main(params) {
-	var sim = new SimProxy(params, function(credentials, sim) {
-		client.init(credentials, sim);
+	var sim = new SimProxy(params, (credentials, sim)=>{
+		if(credentials && sim)
+			client.init(credentials, sim);
+		else
+			client.close();
 	});
-	sim.on('error', function(evt, msg) {
+	sim.on('error', (evt, msg)=>{
 		client.modalPopup(msg, ['OK'], function(id) { client.close(); });
 	});
-	sim.on('warn', function(evt, msg) { client.displayStatus(msg); });
+	sim.on('warn', (evt, msg)=>{ client.displayStatus(msg); });
 }
+window.addEventListener("load", ()=>{ 
+	main(eludi.paramsRequest());
+});
