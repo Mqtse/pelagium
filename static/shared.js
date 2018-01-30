@@ -418,7 +418,7 @@ function MapHex(params) {
 		if(objectives) for(var i=objectives.length; i--; ) {
 			var obj = objectives[i];
 			var tile = page.get(obj.x, obj.y);
-			tile.id = obj.id;
+			tile.id = ('id' in obj) ? obj.id : i;
 			if(obj.party) {
 				tile.party = obj.party;
 				tile.production = obj.production || 'inf';
