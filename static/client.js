@@ -218,10 +218,12 @@ client = {
 		this.turn = 1;
 		this.cache = new Cache('pelagium/client', this.credentials.id);
 		this.workers = [];
-		this.ai = this.cache.getItem('/ai') || {};
-		for(let id in this.ai)
-			this.spawnAI(this.ai[id]);
 
+		for(let id in this.parties) {
+			let party = this.parties[id];
+			if(party.mode==='AI')
+				this.spawnAI(party.id);
+		}
 
 		this.btnMain = new ButtonController('#toolbar_main', function(evt) { self.handleUIEvent(evt); });
 		this.btnMain.setMode('fwd').setBackground(MD.Party[this.party].color);
@@ -1041,7 +1043,11 @@ client = {
 
 	handlePresenceEvent: function(evt) {
 		if(evt.type=='join' && !(evt.party in this.parties)) {
-			this.parties[evt.party] = evt.name || '';
+			let party = this.parties[evt.party] = {};
+			if(evt.name)
+				party.name = evt.name;
+			if(evt.mode)
+				party.mode = evt.mode;
 			let name = evt.name || 'opponent';
 			this.displayStatus(name+' has joined as ' + MD.Party[evt.party].name);
 			this.hideJoinCredentials();
@@ -1073,8 +1079,8 @@ client = {
 					if(id == this.credentials.party)
 						continue;
 					msg += (numParties++) ? ', ' : ' &nbsp; co-players:';
-					let name = this.parties[id];
-					if(name.length)
+					let name = this.parties[id].name;
+					if(name && name.length)
 						msg += ' '+name+' ('+MD.Party[id].name+')';
 					else
 						msg += ' '+MD.Party[id].name;
@@ -1129,8 +1135,6 @@ client = {
 			let evt = msg.data.type;
 			let data = msg.data.data;
 			if(evt=='credentials') {
-				this.ai[data.party] = data.id;
-				this.cache.setItem('/ai', this.ai );
 				console.log('AI opponent has joined as '+MD.Party[data.party].name);
 			}
 			else if(evt=='error') {

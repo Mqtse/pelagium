@@ -91,7 +91,14 @@ function ServerPelagium(topLevelPath, persistence) {
 	this.getParties = function(match) {
 		let parties = {};
 		match.users.forEach((value, key)=>{
-			parties[value.party] = value.name ? value.name : '';
+			let party = parties[value.party] = {};
+			if(value.name)
+				party.name = value.name;
+			if(value.mode) {
+				party.mode = value.mode;
+				if(value.mode == 'AI')
+					party.id = key;
+			}
 		});
 		return parties;
 	}
@@ -104,15 +111,20 @@ function ServerPelagium(topLevelPath, persistence) {
 
 		var user = { party: match.users.size + 1 };
 		user.id = this.makeid(6, match.id.substr(0,1)); 
-		if(params.name)
-			user.name = params.name;
-		if(params.email)
-			user.email = params.email;
+		for(let key in { 'name':true, 'email':true, 'mode':true })
+			if(key in params)
+				user[key] = params[key];
+
 		match.users.set( user.id, user );
 		this.matches.set( user.id, match );
 
 		console.log('match', match.id, 'new party:', user);
-		match.sim._postPresenceEvent(user.party, 'join', params.name ? {name:params.name} : undefined);
+		let details = {};
+		if(params.name)
+			details.name = params.name;
+		if(params.mode)
+			details.mode = params.mode;
+		match.sim._postPresenceEvent(user.party, 'join', details);
 		return [ 200, { match:match.id, id:user.id, party:user.party, parties:this.getParties(match) } ];
 	}
 
