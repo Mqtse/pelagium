@@ -33,7 +33,7 @@ let Mission = function(type, ai, map, x,y) {
 	this.cleanup = function() {
 		for(let id in this.units) {
 			let unit = ai.units[id];
-			if(unit && unit.mission==this.id) 
+			if(unit && unit.mission==this.id)
 				delete unit.mission;
 		}
 		this.units = {};
@@ -233,7 +233,7 @@ let AI = function(sim, credentials) {
 				this.turn = parseInt(evt.turn);
 				break;
 			case 'gameOver':
-				
+
 			case 'support':
 			case 'contact':
 				continue; // ignore
