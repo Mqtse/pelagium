@@ -524,7 +524,7 @@ function Sim(params, callback) {
 			++party.objectives;
 			party.knownObjectives[dest.id] = unit.party.id;
 		}
-		events.push({type:'capture', x:unit.x, y:unit.y, party:unit.party.id});
+		events.push({type:'capture', x:unit.x, y:unit.y, id:dest.id, party:unit.party.id});
 	}
 
 	this._isGameOver = function(events) {

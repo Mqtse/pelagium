@@ -222,6 +222,7 @@ let AI = function(sim, credentials) {
 	}
 	this.handleSimEvents = function(events) {
 		this.simEvents = events;
+		this.capturedObjs = {};
 		console.groupCollapsed(events.length+' sim events received');
 		for(let i=0; i<events.length; ++i) {
 			let evt = events[i];
@@ -232,8 +233,11 @@ let AI = function(sim, credentials) {
 			case 'turn':
 				this.turn = parseInt(evt.turn);
 				break;
+			case 'capture':
+				if(evt.party == this.credentials.party)
+					this.capturedObjs[evt.id] = true;
+				break;
 			case 'gameOver':
-
 			case 'support':
 			case 'contact':
 				continue; // ignore
@@ -407,21 +411,25 @@ let AI = function(sim, credentials) {
 	}
 
 	this.assignProduction = function(obj, orders) {
-		let buildProb = this.attitude.buildProbability;
-		let sum = 0;
-		for(let id in buildProb)
-			sum += buildProb[id];
-		let score = Math.floor(Math.random()*sum);
-		sum = 0;
 		let unit = '';
-		for(let id in buildProb) {
-			sum += buildProb[id];
-			if(sum>score) {
-				unit = id;
-				break;
+		if(obj.id in this.capturedObjs)
+			unit = 'inf';
+		else {
+			let buildProb = this.attitude.buildProbability;
+			let sum = 0;
+			for(let id in buildProb)
+				sum += buildProb[id];
+			let score = Math.floor(Math.random()*sum);
+			sum = 0;
+			for(let id in buildProb) {
+				sum += buildProb[id];
+				if(sum>score) {
+					unit = id;
+					break;
+				}
 			}
 		}
-		console.log('production (',obj.x,',',obj.y,') score:', score, 'unit:', unit);
+		console.log('production (',obj.x,',',obj.y,') unit:', unit);
 		orders.push({ type:'production', unit:unit, x:obj.x, y:obj.y });
 	}
 	this.generateOrders = function() {
@@ -475,6 +483,7 @@ let AI = function(sim, credentials) {
 	this.objectives = null;
 	this.fov = null;
 	this.simEvents = null;
+	this.capturedObjs = {};
 	this.missions = {}; // long term
 	this.orders = []; // immediate for this turn
 	this.turn = -1;
