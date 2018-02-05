@@ -511,8 +511,9 @@ function Sim(params, callback) {
 	this._capture = function(dest, unit, events) {
 		if(dest.party==unit.party.id)
 			return;
-		if(dest.party in this.parties) {
-			let party = this.parties[dest.party]; 
+		let from = dest.party;
+		if(from in this.parties) {
+			let party = this.parties[from]; 
 			--party.objectives;
 			party.knownObjectives[dest.id] = unit.party.id;
 		}
@@ -524,7 +525,7 @@ function Sim(params, callback) {
 			++party.objectives;
 			party.knownObjectives[dest.id] = unit.party.id;
 		}
-		events.push({type:'capture', x:unit.x, y:unit.y, id:dest.id, party:unit.party.id});
+		events.push({type:'capture', x:unit.x, y:unit.y, id:dest.id, party:unit.party.id, from:from});
 	}
 
 	this._isGameOver = function(events) {

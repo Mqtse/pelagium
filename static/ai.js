@@ -166,7 +166,7 @@ let MissionDefend = function(ai, map, x,y) {
 		}
 	}
 	this.isOver = function() {
-		return MissionDefend.checkNeed(this,ai.map,ai.credentials.party)==false;
+		return MissionDefend.checkNeed(this,ai.map,ai.credentials.party)===false;
 	}
 	Mission.call(this, 'defend', ai, map, x, y);
 }
@@ -192,9 +192,9 @@ MissionDefend.checkNeed = function(obj, map, party) {
 		else
 			defenders.push(tile.unit);
 	}
-	if(attackers.length===0 || defenders.length===0)
+	if(attackers.length===0)
 		return false;
-	return defenders.slice(0, Math.ceil(attackers.length*1.33));
+	return defenders.slice(0, Math.ceil(attackers.length*1.33)); // might be []
 }
 
 let AI = function(sim, credentials) {
@@ -234,7 +234,7 @@ let AI = function(sim, credentials) {
 				this.turn = parseInt(evt.turn);
 				break;
 			case 'capture':
-				if(evt.party == this.credentials.party)
+				if(evt.party == this.credentials.party && evt.from)
 					this.capturedObjs[evt.id] = true;
 				break;
 			case 'gameOver':
@@ -319,7 +319,7 @@ let AI = function(sim, credentials) {
 			let defenders = MissionDefend.checkNeed(obj, this.map, this.credentials.party);
 			let missionId = Mission.makeid(obj);
 
-			if(!defenders) { // no defense mission
+			if(defenders===false) { // no defense mission
 				if(obj.party != this.credentials.party) {
 					if(missionId in this.missions)
 						expandMissions.push(this.missions[missionId]);
@@ -411,10 +411,14 @@ let AI = function(sim, credentials) {
 	}
 
 	this.assignProduction = function(obj, orders) {
-		let unit = '';
-		if(obj.id in this.capturedObjs)
+		let unit = (obj.id in this.capturedObjs) ? 'inf' : '';
+		let missionId = Mission.makeid(obj);
+		if(unit === ''
+			&& (missionId in this.missions)
+			&& this.missions[missionId].type=='defend')
 			unit = 'inf';
-		else {
+
+		if(unit==='') {
 			let buildProb = this.attitude.buildProbability;
 			let sum = 0;
 			for(let id in buildProb)
