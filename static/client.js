@@ -3,9 +3,7 @@ function AnimationSelected(tStart, unit, callback) {
 	this.transform = function(tNow, transf) {
 		var tFrac = tNow - this.tStart - 0.5;
 		tFrac -= Math.floor(tFrac);
-		var sc = Math.abs(tFrac - 0.5) * 0.5;
-		transf.scx += sc;
-		transf.scy += sc;
+		transf.scx = transf.scy = 1.0 + Math.abs(tFrac - 0.5) * 0.5;
 	}
 	this.unit = unit;
 	this.tStart = tStart;
@@ -65,9 +63,7 @@ function AnimationExplode(tStart, unit, callback, cbData) {
 			transf.opacity = 0.0;
 			return;
 		}
-		var sc = 1+deltaT*vel;
-		transf.scx += sc;
-		transf.scy += sc;
+		transf.scx = transf.scy = 1.0 + deltaT*vel;
 		transf.opacity = 1.0 - deltaT*vel;
 	}
 	this.unit = unit;
@@ -176,6 +172,63 @@ function ProductionController(selector, unitColor, callback) {
 	this.setProduction(); // initializes visualization
 }
 
+//--- renderer -----------------------------------------------------
+function RendererSprites(dc, size) {
+	const sz = size*Math.tan(Math.PI/6);
+	const lineWidth = sz/6;
+	const partySpriteSz = Math.floor(sz+lineWidth*1.5);
+	const partySpriteFactor = partySpriteSz/sz;
+
+	function initUnitSprites() {
+		let sprites = {};
+		for(let id in MD.Unit) {
+			let sprite = document.createElement('canvas');
+			sprite.width = sprite.height = sz;
+			let dc = extendCanvasContext(sprite.getContext('2d'));
+			client.drawUnitSymbol(dc, id, sz,sz, lineWidth, 'white');
+			sprites[id] = sprite;
+		}
+		return sprites;
+	}
+	function initPartySprites() {
+		const shadowR = lineWidth/2;
+		let sprites = {};
+		for(let id in MD.Party) {
+			let party = MD.Party[id];
+			let sprite = document.createElement('canvas');
+			sprite.width = sprite.height = partySpriteSz;
+			let dc = sprite.getContext('2d');
+
+			dc.shadowColor='rgba(0,0,0,0.4)';
+			dc.shadowOffsetX = shadowR;
+			dc.shadowOffsetY = shadowR;
+			dc.shadowBlur = shadowR;
+			dc.fillStyle = party.color;
+			dc.fillRect(0,0, sz,sz);
+
+			sprites[id] = sprite;
+		}
+		return sprites;
+	}
+
+	this.drawUnit = function(party, id, x,y, w,h, symbolOpacity) {
+		let sprite = this.partySprites[party];
+		this.dc.drawImage(sprite, x,y, w*partySpriteFactor, h*partySpriteFactor);
+
+		sprite = this.unitSprites[id];
+		if(symbolOpacity!==undefined) {
+			this.dc.save();
+			this.dc.globalAlpha *= symbolOpacity;
+		}
+		this.dc.drawImage(sprite, x,y, w,h);
+		if(symbolOpacity!==undefined)
+			this.dc.restore();
+	}
+	this.unitSprites = initUnitSprites();
+	this.partySprites = initPartySprites();
+	this.dc = dc;
+}
+
 // --- client ------------------------------------------------------
 client = {
 	settings: {
@@ -213,11 +266,16 @@ client = {
 		this.pointerEventStartTime = 0;
 		this.time = 0;
 		this.tLastUpdate = new Date()/1000.0;
+		this.tLastFps = this.tLastUpdate;
+		this.frames = 0;
 		this.orders = [];
 		this.simEvents = [];
 		this.turn = 1;
 		this.cache = new Cache('pelagium/client', this.credentials.id);
 		this.workers = [];
+		this.renderer = new RendererSprites(
+			this.foreground.dc, 2*this.settings.scales[this.settings.scales.length-1]);
+		this.drawUnit = this.drawUnitAdhoc;
 
 		for(let id in this.parties) {
 			let party = this.parties[id];
@@ -712,39 +770,82 @@ client = {
 		});
 	},
 
-	drawUnit: function(dc, unit) {
+	drawUnitAdhoc: function(dc, unit) {
 		if(unit.state=='dead')
 			return;
-		var cellX = unit.x;
-		var cellY = unit.y;
 
-		var scale = this.cellMetrics.r;
-		var transf = { x:0.0, y:0.0, r:0.0, scx:1.0, scy:1.0, opacity:1.0 };
-		if(unit.animation && (this.state=='input' || this.state=='replay'))
+		var x = unit.x-this.vp.x, y = unit.y-this.vp.y;
+		var w, h;
+		var scale = w = h = this.cellMetrics.r;
+		var opacity = 1.0;
+		var offsetOdd = (unit.x%2) ? 0.5*this.cellMetrics.h : 0;
+
+		if(unit.animation && (this.state=='input' || this.state=='replay')) {
+			var transf = { x:0.0, y:0.0, r:0.0, scx:1.0, scy:1.0, opacity:1.0 };
 			unit.animation.transform(this.time, transf);
-		var w=scale*transf.scx, h=scale*transf.scy;
+			x += transf.x;
+			y += transf.y;
+			w *= transf.scx;
+			h *= transf.scy;
+			opacity = transf.opacity;
+		}
 
-		var x=(transf.x+cellX-this.vp.x)*this.cellMetrics.w+this.vp.offsetX - w/2;
-		var y=(transf.y+cellY-this.vp.y)*this.cellMetrics.h+this.vp.offsetY + ((cellX%2) ? 0.5*this.cellMetrics.h : 0) - h/2;
+		x = x*this.cellMetrics.w + this.vp.offsetX - w/2;
+		y = y*this.cellMetrics.h + this.vp.offsetY + offsetOdd - h/2;
+		var lineWidth = w/6;
 
-		var sprite = document.createElement('canvas');
-		sprite.width = w;
-		sprite.height = h;
-		var sdc = extendCanvasContext(sprite.getContext('2d'));
-		sdc.fillStyle = unit.party.color;
-		sdc.fillRect(0,0, w, h);
+		dc.save();
+		dc.globalAlpha = opacity;
+		dc.shadowColor='rgba(0,0,0,0.4)';
+		dc.shadowOffsetX = lineWidth/2;
+		dc.shadowOffsetY = lineWidth/2;
+		dc.shadowBlur = lineWidth/2;
+		dc.fillStyle = unit.party.color;
+		dc.fillRect(x,y, w, h);
+		dc.restore();
+
+		dc.save();
+		dc.translate(x,y);
+		dc.beginPath();
+		dc.rect(0,0, w,h);
+		dc.clip();
+		dc.globalAlpha = opacity;
 		var fgColor = 'white';
 		if(this.state=='input' && !unit.animation && !unit.origin && unit.party.id==this.party)
 			fgColor = 'rgba(255,255,255,'+Math.min(0.75 + Math.abs(this.time % 1.0 - 0.5), 1.0)+')';
-		this.drawUnitSymbol(sdc, unit.type.id, w,h, scale*transf.scx/6, fgColor);
+		this.drawUnitSymbol(dc, unit.type.id, w,h, lineWidth, fgColor);
+		dc.restore();
+	},
+
+	drawUnitRenderer: function(dc, unit) {
+		if(unit.state=='dead')
+			return;
+
+		var x = unit.x-this.vp.x, y = unit.y-this.vp.y;
+		var w, h;
+		var scale = w = h = this.cellMetrics.r;
+		var opacity = 1.0;
+		var offsetOdd = (unit.x%2) ? 0.5*this.cellMetrics.h : 0;
+
+		if(unit.animation && (this.state=='input' || this.state=='replay')) {
+			var transf = { x:0.0, y:0.0, r:0.0, scx:1.0, scy:1.0, opacity:1.0 };
+			unit.animation.transform(this.time, transf);
+			x += transf.x;
+			y += transf.y;
+			w *= transf.scx;
+			h *= transf.scy;
+			opacity = transf.opacity;
+		}
+
+		x = x*this.cellMetrics.w + this.vp.offsetX - w/2;
+		y = y*this.cellMetrics.h + this.vp.offsetY + offsetOdd - h/2;
 
 		dc.save();
 		dc.globalAlpha = transf.opacity;
-		dc.shadowColor='rgba(0,0,0,0.4)';
-		dc.shadowOffsetX=sdc.lineWidth/2;
-		dc.shadowOffsetY=sdc.lineWidth/2;
-		dc.shadowBlur = sdc.lineWidth/2;
-		dc.drawImage(sprite, x,y, w, h);
+		var symbolOpacity;
+		if(this.state=='input' && !unit.animation && !unit.origin && unit.party.id==this.party)
+			symbolOpacity = Math.min(0.75 + Math.abs(this.time % 1.0 - 0.5), 1.0);
+		this.renderer.drawUnit(unit.party.id, unit.type.id, x,y,w,h, symbolOpacity);
 		dc.restore();
 	},
 
@@ -842,6 +943,14 @@ client = {
 		}
 
 		this.tLastUpdate = tNow;
+		if(tNow-this.tLastFps<1.0)
+			++this.frames;
+		else {
+			this.displayStatus('fps: '+this.frames);
+			this.frames = 1;
+			this.tLastFps = tNow;
+		}
+
 		this.draw();
 		requestAnimationFrame(()=>{ this.update(); });
 	},
