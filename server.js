@@ -1,4 +1,5 @@
-var qs = require('querystring');
+const qs = require('querystring');
+const os = require('os');
 
 var httpUtils = require('./httpUtils');
 var Sim = require('./sim');
@@ -154,14 +155,10 @@ function ServerPelagium(topLevelPath, persistence) {
 	}
 
 	this.usage = function() {
-		var upMins = Math.floor(((new Date())-this.startTime)/1000/60);
-		var upTime = Math.floor(upMins/60/24)+'d '+(Math.floor(upMins/60)%24)+'h '+(upMins%60)+'m'
 		return {
 			matchesRunning: this.currMatchCount,
 			matchesTotal: this.totalMatchCount,
-			estimatedDiskUsage: this.currMatchCount*3, // 3kB per match
-			startTime: this.startTime.toISOString(),
-			upTime:upTime 
+			estimatedDiskUsage: this.currMatchCount*3+'kB' // 3kB per match
 		}
 	}
 
@@ -237,7 +234,6 @@ function ServerPelagium(topLevelPath, persistence) {
 	this.totalMatchCount = 0;
 	this.currMatchCount = 0;
 	this.validator = new JsonValidator(require('./pelagium.schema.json'));
-	this.startTime = new Date();
 	if(persistence) {
 		this.storage = new Storage(persistence);
 		this.resumeFrom(this.storage);
@@ -269,15 +265,30 @@ var server = httpUtils.createServer(cfg, function(req, resp, url) {
 	if(!url.path.length)
 		return { path:[ serverPelagium.path ] };
 });
+server.startTime = new Date();
 server.usage = function(req, resp) {
-	this.getConnections(function(err, count) {
-		var data = {
+	this.getConnections((err, count)=>{
+		let upMins = Math.floor(((new Date())-this.startTime)/1000/60);
+		let sysUpMins = Math.round(os.uptime()/60);
+		let data = {
 			pelagium: serverPelagium.usage(),
-			memoryUsage: process.memoryUsage(),
-			connections: count
+			process: {
+				memoryUsage: process.memoryUsage(),
+				connections: count,
+				startTime: server.startTime.toISOString(),
+				upTime:Math.floor(upMins/60/24)+'d '+(Math.floor(upMins/60)%24)+'h '+(upMins%60)+'m'
+			},
+			system: {
+				memoryFree: `${Math.round(os.freemem() / 1048576)}MB`,
+				memoryTotal: `${Math.round(os.totalmem() / 1048576)}MB`,
+				loadAvg: os.loadavg(),
+				uptime: Math.floor(sysUpMins/60/24)+'d '+(Math.floor(sysUpMins/60)%24)+'h '+(sysUpMins%60)+'m'
+			}
 		}
+		for(let id in data.process.memoryUsage)
+			data.process.memoryUsage[id] = Math.round(data.process.memoryUsage[id]/1024)+'kB';
 		if('cpuUsage' in process)
-			data.cpuUsage = process.cpuUsage()
+			data.process.cpuUsage = process.cpuUsage()
 		httpUtils.respond(resp, 200, data);
 	});
 }
