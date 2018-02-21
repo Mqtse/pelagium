@@ -1,100 +1,3 @@
-//--- animations ---------------------------------------------------
-function AnimationSelected(tStart, unit, callback) {
-	this.transform = function(tNow, transf) {
-		var tFrac = tNow - this.tStart - 0.5;
-		tFrac -= Math.floor(tFrac);
-		transf.scx = transf.scy = 1.0 + Math.abs(tFrac - 0.5) * 0.5;
-	}
-	this.unit = unit;
-	this.tStart = tStart;
-	this.type = 'selected';
-}
-
-function AnimationMove(tStart, unit, destination, callback, cbData) {
-	var vel = 2.0;
-	this.transform = function(tNow, transf) {
-		var deltaT = tNow - this.tStart;
-		if(deltaT*vel >= this.distance) {
-			if(Array.isArray(destination) && destination.length > 1) {
-				this.x += this.dx * this.distance;
-				this.y += this.dy * this.distance;
-				transf.x = this.x;
-				transf.y = this.y;
-
-				var angle = MatrixHex.angleRad(destination[0], destination[1]);
-				this.distance = MatrixHex.distCart(destination[0], destination[1]);
-				this.dx = Math.sin(angle);
-				this.dy = -Math.cos(angle);
-				this.tStart = tNow;
-				destination.shift();
-			}
-			else {
-				this.unit.animation = null;
-				if(callback)
-					callback(this.unit, cbData);
-				transf.x = this.x + this.dx * this.distance;
-				transf.y = this.y + this.dy * this.distance;
-			}
-			return;
-		}
-		transf.x = this.x + this.dx * deltaT * vel;
-		transf.y = this.y + this.dy * deltaT * vel;
-	}
-	this.unit = unit;
-	var dest = Array.isArray(destination) ? destination[0] : destination;
-	this.distance = MatrixHex.distCart(unit, dest);
-	var angle = MatrixHex.angleRad(unit, dest);
-	this.dx = Math.sin(angle);
-	this.dy = -Math.cos(angle);
-	this.x = 0;
-	this.y = 0;
-	this.tStart = tStart;
-	this.type = 'move';
-}
-
-function AnimationExplode(tStart, unit, callback, cbData) {
-	var vel = 1.5;
-	this.transform = function(tNow, transf) {
-		var deltaT = tNow - this.tStart;
-		if(deltaT*vel>=1.0) {
-			this.unit.animation = null;
-			if(callback)
-				callback(this.unit, cbData);
-			transf.opacity = 0.0;
-			return;
-		}
-		transf.scx = transf.scy = 1.0 + deltaT*vel;
-		transf.opacity = 1.0 - deltaT*vel;
-	}
-	this.unit = unit;
-	this.tStart = tStart;
-}
-
-function AnimationSupport(tStart, unit, destination, callback, cbData) {
-	var vel = 2.0;
-	this.transform = function(tNow, transf) {
-		var deltaT = tNow - this.tStart;
-		if(deltaT*vel >= this.distance) {
-			this.unit.animation = null;
-			if(callback)
-				callback(this.unit, cbData);
-			return;
-		}
-		if(deltaT > 0.5*this.distance/vel)
-			deltaT = 0.5*this.distance/vel - deltaT;
-		transf.x = this.dx * deltaT * vel;
-		transf.y = this.dy * deltaT * vel;
-	}
-	this.unit = unit;
-	var dest = destination;
-	this.distance = 0.7;
-	var angle = MatrixHex.angleRad(unit, dest);
-	this.dx = Math.sin(angle);
-	this.dy = -Math.cos(angle);
-	this.tStart = tStart;
-	this.type = 'support';
-}
-
 function ProductionController(selector, unitColor, callback) {
 	var element=document.querySelector(selector);
 
@@ -136,7 +39,7 @@ function ProductionController(selector, unitColor, callback) {
 			dc.clip();
 			dc.fillStyle = unitColor;
 			dc.fillRect(0,0, sz,sz);
-			client.drawUnitSymbol(dc, toolId, sz,sz, sz/6, 'white');
+			dc.strokeUnit(toolId, sz,sz, sz/6, 'white');
 			dc.restore();
 		}
 		return this;
@@ -170,63 +73,6 @@ function ProductionController(selector, unitColor, callback) {
 	}
 
 	this.setProduction(); // initializes visualization
-}
-
-//--- renderer -----------------------------------------------------
-function RendererSprites(dc, size) {
-	const sz = size*Math.tan(Math.PI/6);
-	const lineWidth = sz/6;
-	const partySpriteSz = Math.floor(sz+lineWidth*1.5);
-	const partySpriteFactor = partySpriteSz/sz;
-
-	function initUnitSprites() {
-		let sprites = {};
-		for(let id in MD.Unit) {
-			let sprite = document.createElement('canvas');
-			sprite.width = sprite.height = sz;
-			let dc = extendCanvasContext(sprite.getContext('2d'));
-			client.drawUnitSymbol(dc, id, sz,sz, lineWidth, 'white');
-			sprites[id] = sprite;
-		}
-		return sprites;
-	}
-	function initPartySprites() {
-		const shadowR = lineWidth/2;
-		let sprites = {};
-		for(let id in MD.Party) {
-			let party = MD.Party[id];
-			let sprite = document.createElement('canvas');
-			sprite.width = sprite.height = partySpriteSz;
-			let dc = sprite.getContext('2d');
-
-			dc.shadowColor='rgba(0,0,0,0.4)';
-			dc.shadowOffsetX = shadowR;
-			dc.shadowOffsetY = shadowR;
-			dc.shadowBlur = shadowR;
-			dc.fillStyle = party.color;
-			dc.fillRect(0,0, sz,sz);
-
-			sprites[id] = sprite;
-		}
-		return sprites;
-	}
-
-	this.drawUnit = function(party, id, x,y, w,h, symbolOpacity) {
-		let sprite = this.partySprites[party];
-		this.dc.drawImage(sprite, x,y, w*partySpriteFactor, h*partySpriteFactor);
-
-		sprite = this.unitSprites[id];
-		if(symbolOpacity!==undefined) {
-			this.dc.save();
-			this.dc.globalAlpha *= symbolOpacity;
-		}
-		this.dc.drawImage(sprite, x,y, w,h);
-		if(symbolOpacity!==undefined)
-			this.dc.restore();
-	}
-	this.unitSprites = initUnitSprites();
-	this.partySprites = initPartySprites();
-	this.dc = dc;
 }
 
 // --- client ------------------------------------------------------
@@ -273,9 +119,8 @@ client = {
 		this.turn = 1;
 		this.cache = new Cache('pelagium/client', this.credentials.id);
 		this.workers = [];
-		this.renderer = new RendererSprites(
+		this.renderer = new RendererAdhoc(
 			this.foreground.dc, 2*this.settings.scales[this.settings.scales.length-1]);
-		this.drawUnit = this.drawUnitAdhoc;
 
 		for(let id in this.parties) {
 			let party = this.parties[id];
@@ -770,54 +615,8 @@ client = {
 		});
 	},
 
-	drawUnitAdhoc: function(dc, unit) {
-		if(unit.state=='dead')
-			return;
 
-		var x = unit.x-this.vp.x, y = unit.y-this.vp.y;
-		var w, h;
-		var scale = w = h = this.cellMetrics.r;
-		var opacity = 1.0;
-		var offsetOdd = (unit.x%2) ? 0.5*this.cellMetrics.h : 0;
-
-		if(unit.animation && (this.state=='input' || this.state=='replay')) {
-			var transf = { x:0.0, y:0.0, r:0.0, scx:1.0, scy:1.0, opacity:1.0 };
-			unit.animation.transform(this.time, transf);
-			x += transf.x;
-			y += transf.y;
-			w *= transf.scx;
-			h *= transf.scy;
-			opacity = transf.opacity;
-		}
-
-		x = x*this.cellMetrics.w + this.vp.offsetX - w/2;
-		y = y*this.cellMetrics.h + this.vp.offsetY + offsetOdd - h/2;
-		var lineWidth = w/6;
-
-		dc.save();
-		dc.globalAlpha = opacity;
-		dc.shadowColor='rgba(0,0,0,0.4)';
-		dc.shadowOffsetX = lineWidth/2;
-		dc.shadowOffsetY = lineWidth/2;
-		dc.shadowBlur = lineWidth/2;
-		dc.fillStyle = unit.party.color;
-		dc.fillRect(x,y, w, h);
-		dc.restore();
-
-		dc.save();
-		dc.translate(x,y);
-		dc.beginPath();
-		dc.rect(0,0, w,h);
-		dc.clip();
-		dc.globalAlpha = opacity;
-		var fgColor = 'white';
-		if(this.state=='input' && !unit.animation && !unit.origin && unit.party.id==this.party)
-			fgColor = 'rgba(255,255,255,'+Math.min(0.75 + Math.abs(this.time % 1.0 - 0.5), 1.0)+')';
-		this.drawUnitSymbol(dc, unit.type.id, w,h, lineWidth, fgColor);
-		dc.restore();
-	},
-
-	drawUnitRenderer: function(dc, unit) {
+	drawUnit: function(dc, unit) {
 		if(unit.state=='dead')
 			return;
 
@@ -841,29 +640,12 @@ client = {
 		y = y*this.cellMetrics.h + this.vp.offsetY + offsetOdd - h/2;
 
 		dc.save();
-		dc.globalAlpha = transf.opacity;
-		var symbolOpacity;
+		dc.globalAlpha = opacity;
+		var symbolOpacity = 1.0;
 		if(this.state=='input' && !unit.animation && !unit.origin && unit.party.id==this.party)
 			symbolOpacity = Math.min(0.75 + Math.abs(this.time % 1.0 - 0.5), 1.0);
 		this.renderer.drawUnit(unit.party.id, unit.type.id, x,y,w,h, symbolOpacity);
 		dc.restore();
-	},
-
-	drawUnitSymbol: function(dc, type, w,h, lineWidth, color) {
-		dc.strokeStyle = color;
-		dc.lineWidth = lineWidth;
-		switch(type) {
-		case 'inf':
-			dc.strokeLine(0,0, w,h);
-			dc.strokeLine(0,h, w,0);
-			break;
-		case 'kv':
-			dc.strokeLine(0,h, w,0);
-			break;
-		case 'art':
-			dc.circle(w/2,h/2, 1.25*lineWidth, {fillStyle:color});
-			break;
-		}
 	},
 
 	drawSelTile: function(dc, tile) {
