@@ -4,6 +4,11 @@
 	"description": "a turn-based strategy game",
 	"icons": [
 		{
+			"src": "/static/icon_island512.png",
+			"sizes": "512x512",
+			"type": "image/png"
+		},
+		{
 			"src": "/static/icon_island256.png",
 			"sizes": "256x256",
 			"type": "image/png"
@@ -15,7 +20,8 @@
 		}
 	],
 	"start_url": "/pelagium",
+	"scope": "/",
 	"display": "fullscreen",
-	"background_color": "black",
-	"theme_color": "black"
+	"background_color": "#cadacf",
+	"theme_color": "#cadacf"
 }

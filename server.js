@@ -15,6 +15,7 @@ let cfg = {
 	matchOverTimeout: 60*60*24,
 	persistence: false,
 	sslPath: false,
+	redirectHttp: false,
 	scenarios: 'scenarios'
 }
 httpUtils.parseArgs(process.argv.slice(2), cfg);
@@ -258,6 +259,8 @@ var server = httpUtils.createServer(cfg, function(req, resp, url) {
 			return httpUtils.serveStatic(resp, url.path[1], __dirname+'/'+url.path[0]);
 	case 'info':
 		return server.usage(req, resp);
+	case 'serviceworker.js':
+		return httpUtils.serveStatic(resp, url.path[0], __dirname+'/static');
 	default:
 		httpUtils.respond(resp, 404, "Not Found");
 	}
@@ -291,6 +294,18 @@ server.usage = function(req, resp) {
 			data.process.cpuUsage = process.cpuUsage()
 		httpUtils.respond(resp, 200, data);
 	});
+}
+var serverHttp = null;
+if(server.isHttps && cfg.redirectHttp) {
+	serverHttp = httpUtils.createServer(
+		{ ip:cfg.ip, port:cfg.redirectHttp },
+		function(req, resp, url) {
+			httpUtils.respond(resp, 404, "Not Found");
+		},
+		function(req, url) { // redirect handler
+			return { protocol:'https:' };
+		}
+	);
 }
 
 httpUtils.onShutdown(function() { console.log( "shutting down." ); });

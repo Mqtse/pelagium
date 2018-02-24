@@ -122,20 +122,18 @@ function createServer(cfg, requestHandler, redirectHandler) {
 							req.connection.encrypted ? 'https:' : 'http:';
 						if(prot.slice(-1)!=':')
 							prot += ':';
-						let hostname = redirect.hostname ? redirect.hostname : url.hostname;
+						let hostname = redirect.hostname ? redirect.hostname :
+							url.hostname ? url.hostname : req.headers.host;
 						let port = redirect.port ? redirect.port : (url.port!=80 && url.port!=443) ? url.port : '';
 						let pathname = redirect.pathname ? redirect.pathname : redirect.path ?
 							('/' + redirect.path.join('/')) : url.pathname;
 						let search = redirect.search ? redirect.search :
 							redirect.query ? ('?'+qs.stringify(redirect.query)) : url.search;
 						let u = '';
-						if(hostname)
-							u += prot + '//' + hostname;
-						if(port) {
-							if(!u.length)
-								return respond(resp, 500, 'port redirect requires hostname');
+						if(hostname || prot || port)
+							u = prot + '//' + hostname;
+						if(port)
 							u += ':' + port;
-						}
 						u += pathname;
 						if(search)
 							u += search; 
@@ -185,6 +183,7 @@ function createServer(cfg, requestHandler, redirectHandler) {
 		: http.createServer(handler);
 	server.listen(port, ip);
 	console.log(cfg.sslPath ? 'https':'http','server listening at', ip+':'+port);
+	server.isHttps = cfg.sslPath ? true : false;
 	return server;
 }
 

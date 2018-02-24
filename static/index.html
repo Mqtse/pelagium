@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<HTML><!-- manifest="/static/cache.appcache">-->
+<HTML>
 	<head>
 		<title>pelagium</title>
 		<meta charset="ISO-8859-15">
 		<meta name="author" content="Gerald Franz"/>
 		<meta name="description" content="turn-based online strategy game"/>
 		<meta name="keywords" content="water world,HTML5,javascript"/>
+		<meta name="theme-color" content="#cadacf"/>
 
 		<meta name="viewport" content="user-scalable=no, width=device-width" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
@@ -182,6 +183,12 @@ ul#scenarios {
 		<script type="text/javascript" src="/static/masterdata.js"></script>
 		<script type="text/javascript" src="/static/shared.js"></script>
 		<script type="text/javascript">
+if ('serviceWorker' in navigator) {
+	navigator.serviceWorker.register('/serviceworker.js', {scope:'/'})
+		.then(() => console.log('service worker installed'))
+		.catch(err => console.error('Error', err));
+}
+
 let StatsTable = function(table) {
 	this.colName = function(col, value) {
 		return this.set(0, col, value)
