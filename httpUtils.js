@@ -30,6 +30,7 @@ function respond(resp, code, body) {
 		resp.writeHead(code, headers);
 		resp.end('{"status":'+code+',"error":"'+body+'"}');
 	}, 1500); // delay potential denial of service / brute force attacks
+	return true;
 }
 
 function serveStatic(resp, path, basePath) {
@@ -73,9 +74,15 @@ function serveStatic(resp, path, basePath) {
 	fs.readFile(basePath + '/'+path, (err,data)=>{
 		if (err)
 			return respond(resp, 404, JSON.stringify(err));
-		resp.writeHead(200, { 'Content-Type':inferMime(path) });
+
+		let mime = inferMime(path);
+		let headers = { 'Content-Type':mime };
+		if(mime.startsWith('image/'))
+			headers['Cache-Control'] = 'public, max-age=31536000'; // 1year
+		resp.writeHead(200, headers);
 		resp.end(data);
 	});
+	return true;
 }
 
 function parseUrl(url, params) {
@@ -100,7 +107,46 @@ function parseUrl(url, params) {
 	return url;
 }
 
-function createServer(cfg, requestHandler, redirectHandler) {
+function redirect(req, resp, url, loc) {
+	if(!loc)
+		return false;
+	let code = 302;
+	if(typeof loc=='object') {
+		let prot = loc.protocol ? loc.protocol : url.protocol ? url.protocol :
+			req.connection.encrypted ? 'https:' : 'http:';
+		if(prot.slice(-1)!=':')
+			prot += ':';
+		let hostname = loc.hostname ? loc.hostname :
+			url.hostname ? url.hostname : req.headers.host;
+		let port = loc.port ? loc.port : (url.port!=80 && url.port!=443) ? url.port : '';
+		let pathname = loc.pathname ? loc.pathname : loc.path ?
+			('/' + loc.path.join('/')) : url.pathname;
+		let search = loc.search ? loc.search :
+			loc.query ? ('?'+qs.stringify(loc.query)) : url.search;
+		let u = '';
+		if(hostname || prot || port)
+			u = prot + '//' + hostname;
+		if(port)
+			u += ':' + port;
+		u += pathname;
+		if(search)
+			u += search; 
+		if(url.hash)
+			u += url.hash;
+		if('code' in loc)
+			code = loc.code;
+		loc = u;
+	}
+	console.log(req.method, req.url,'--', code, '-->', loc);
+	resp.writeHead(code, { 'Location': loc });
+	resp.end();
+	return true;
+}
+
+function createServer(cfg, handlers) {
+	if(typeof handlers === 'function')
+		handlers = [ handlers ];
+
 	let handler = function(req, resp) {
 		// parse request:
 		let params = {};
@@ -113,45 +159,10 @@ function createServer(cfg, requestHandler, redirectHandler) {
 			if('x-forwarded-port' in req.headers)
 				url.port = req.headers['x-forwarded-port'];
 
-			if(redirectHandler) {
-				redirect = redirectHandler(req, url);
-				if(redirect) {
-					let code = 302;
-					if(typeof redirect=='object') {
-						let prot = redirect.protocol ? redirect.protocol : url.protocol ? url.protocol :
-							req.connection.encrypted ? 'https:' : 'http:';
-						if(prot.slice(-1)!=':')
-							prot += ':';
-						let hostname = redirect.hostname ? redirect.hostname :
-							url.hostname ? url.hostname : req.headers.host;
-						let port = redirect.port ? redirect.port : (url.port!=80 && url.port!=443) ? url.port : '';
-						let pathname = redirect.pathname ? redirect.pathname : redirect.path ?
-							('/' + redirect.path.join('/')) : url.pathname;
-						let search = redirect.search ? redirect.search :
-							redirect.query ? ('?'+qs.stringify(redirect.query)) : url.search;
-						let u = '';
-						if(hostname || prot || port)
-							u = prot + '//' + hostname;
-						if(port)
-							u += ':' + port;
-						u += pathname;
-						if(search)
-							u += search; 
-						if(url.hash)
-							u += url.hash;
-						if('code' in redirect)
-							code = redirect.code;
-						redirect = u;
-					}
-					console.log(req.method, req.url,'--', code, '-->', redirect);
-					resp.writeHead(code, { 'Location': redirect });
-					return resp.end();
-				}
-			}
-
-			let remoteAddress = ('x-forwarded-for' in req.headers) ? req.headers['x-forwarded-for'] : req.connection.remoteAddress;
-			console.log(req.method, url.pathname, JSON.stringify(url.query));
-			return requestHandler(req, resp, url, remoteAddress);
+			for(let i=0, end=handlers.length; i!=end; ++i)
+				if(handlers[i](req, resp, url))
+					return;
+			httpUtils.respond(resp, 404, "Not Found");
 		}
 		if(req.method!='POST')
 			return handle();
@@ -211,14 +222,15 @@ function onShutdown(callback) {
 			callback();
 		process.exit();
 	}
-	process.on( 'SIGINT', shutdown);
-	process.on( 'SIGTERM', shutdown);
+	process.on('SIGINT', shutdown);
+	process.on('SIGTERM', shutdown);
 }
 
 module.exports = {
 	respond: respond,
 	serveStatic: serveStatic,
 	createServer: createServer,
+	redirect: redirect,
 	parseArgs: parseArgs,
 	parseUrl: parseUrl,
 	onShutdown: onShutdown

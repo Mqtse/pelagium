@@ -728,7 +728,7 @@ client = {
 		if(tNow-this.tLastFps<1.0)
 			++this.frames;
 		else {
-			this.displayStatus('fps: '+this.frames);
+			//this.displayStatus('fps: '+this.frames);
 			this.frames = 1;
 			this.tLastFps = tNow;
 		}

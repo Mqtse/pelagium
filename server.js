@@ -1,8 +1,8 @@
 const qs = require('querystring');
 const os = require('os');
 
-var httpUtils = require('./httpUtils');
-var Sim = require('./sim');
+const httpUtils = require('./httpUtils');
+const Sim = require('./sim');
 const Storage = require('./DiskStorage');
 const JsonValidator = require('./JsonSchemaValidator')
 
@@ -26,19 +26,20 @@ console.log(cfg);
 function ServerPelagium(topLevelPath, persistence) {
 
 	this.makeid = function(len, prefix) {
-		var possible = "ABCDEFGHKLMNPQRSTUVWXYZ123456789";
-		var valuesPerChar = possible.length;
+		const possible = "ABCDEFGHKLMNPQRSTUVWXYZ123456789";
+		const valuesPerChar = possible.length;
+		let id;
 		do {
-			var id = (typeof prefix === 'string') ? prefix : "";
-			for( var i = id.length; i < len; ++i)
+			id = (typeof prefix === 'string') ? prefix : '';
+			for(let i = id.length; i < len; ++i)
 				id += possible.charAt(Math.floor(Math.random() * valuesPerChar));
 		} while(this.matches.has(id));
 		return id;
 	}
 
 	this.matchCreate = function(params) {
-		var id = params.id = this.makeid(6);
-		var sim = new Sim(params);
+		let id = params.id = this.makeid(6);
+		let sim = new Sim(params);
 		if(sim.state!='running')
 			return [ 400, 'invalid match parameters' ];
 	
@@ -52,11 +53,11 @@ function ServerPelagium(topLevelPath, persistence) {
 			console.warn('cannot insert match id', id, ': id already exists.');
 			return false;
 		}
-		var match = { id:id, sim:new Sim(data.sim), users:new Map() };
+		let match = { id:id, sim:new Sim(data.sim), users:new Map() };
 
-		var allIdsUnique = true;
-		for(var i=0; i<data.users.length && allIdsUnique; ++i) {
-			var userId = data.users[i][0];
+		let allIdsUnique = true;
+		for(let i=0; i<data.users.length && allIdsUnique; ++i) {
+			let userId = data.users[i][0];
 			if(this.matches.has(userId)) {
 				console.warn('cannot insert match id', id, ': user id', userId, 'already exists.');
 				return false;
@@ -72,19 +73,19 @@ function ServerPelagium(topLevelPath, persistence) {
 		return true;
 	}
 	this.matchDelete = function(id) {
-		var match = this.matches.get(id);
+		let match = this.matches.get(id);
 		if(!match || id != match.id)
 			return;
-		match.users.forEach(function(value, key) {
+		match.users.forEach((value, key)=>{
 			this.matches.delete(key);
-		}, this);
+		});
 		this.matches.delete(id);
 		if(this.storage)
 			this.storage.removeItem(id);
 		--this.currMatchCount;
 	}
 	this.matchSerialize = function(id) {
-		var match = this.matches.get(id);
+		let match = this.matches.get(id);
 		if(!match || id != match.id)
 			return null;
 		return { sim:match.sim._serialize(), users:Array.from(match.users.entries()) };
@@ -106,12 +107,12 @@ function ServerPelagium(topLevelPath, persistence) {
 	}
 
 	this.userCreate = function(match, params) {
-		var numPlayersMax = match.sim.numParties;
-		var numPlayers = match.users.size;
+		let numPlayersMax = match.sim.numParties;
+		let numPlayers = match.users.size;
 		if(numPlayers >= numPlayersMax)
 			return [ 403, 'Additional players forbidden'];
 
-		var user = { party: match.users.size + 1 };
+		let user = { party: match.users.size + 1 };
 		user.id = this.makeid(6, match.id.substr(0,1)); 
 		for(let key in { 'name':true, 'email':true, 'mode':true })
 			if(key in params)
@@ -131,28 +132,28 @@ function ServerPelagium(topLevelPath, persistence) {
 	}
 
 	this.resumeFrom = function(storage) {
-		var keys = storage.keys();
-		var numResumed = 0;
-		keys.forEach(function(id) {
-			var data = storage.getItem(id);
+		let keys = storage.keys();
+		let numResumed = 0;
+		keys.forEach((id)=>{
+			let data = storage.getItem(id);
 			if(data && this.matchInsert(id, data))
 				++numResumed;
 			else
 				storage.removeItem(id);
-		}, this);
+		});
 		console.log(numResumed, 'matches resumed');
 	}
 
 	this.collectGarbage = function() {
-		this.matches.forEach(function(match, id) {
+		this.matches.forEach((match, id)=>{
 			if(match.id!=id)
 				return;
-			var now = new Date()/1000.0;
+			let now = new Date()/1000.0;
 			if(match.sim.state=='over' && match.sim.lastUpdateTime+cfg.matchOverTimeout < now)
 				this.matchDelete(id);
 			else if(match.sim.lastUpdateTime+cfg.matchTimeout < now)
 				this.matchDelete(id);
-		}, this);
+		});
 	}
 
 	this.usage = function() {
@@ -164,7 +165,7 @@ function ServerPelagium(topLevelPath, persistence) {
 	}
 
 	this.handleRequest = function(method, path, params, resp) {
-		var respond = httpUtils.respond;
+		const respond = httpUtils.respond;
 		if(!path.length)
 			return respond(resp, 400);
 
@@ -179,15 +180,15 @@ function ServerPelagium(topLevelPath, persistence) {
 		}
 
 		if(path.length==2) {
-			var id = path[1];
+			let id = path[1];
 			if(id=='scenarios' && method=='GET')
 				return respond(resp, 200, Sim.visibleScenarios);
 
-			var match = this.matches.get(id);
+			let match = this.matches.get(id);
 			if(method=='GET') { // reconnect
 				if(!match || id==match.id)
 					return respond(resp, 404, 'player not found');
-				var user = match.users.get(id);
+				let user = match.users.get(id);
 				console.log('match', match.id, 'reconnect:', user);
 				match.sim._postPresenceEvent(user.party, 'reconnect');
 				return respond(resp, 200, { match:match.id, id:user.id,
@@ -201,16 +202,16 @@ function ServerPelagium(topLevelPath, persistence) {
 			return respond(resp, 405,'Method Not Allowed')
 		}
 
-		var userId = path[1];
-		var match = this.matches.get(userId);
+		let userId = path[1];
+		let match = this.matches.get(userId);
 		if(!match || match.id===userId)
 			return respond(resp, 404, 'match not found');
-		var user = match.users.get(userId);
+		let user = match.users.get(userId);
 		if(!user)
 			return respond(resp, 404, 'player not found');
 
-		var cmd = path[2];
-		var sim = match.sim;
+		let cmd = path[2];
+		let sim = match.sim;
 
 		if(!cmd || cmd[0]=='_' || !(cmd in sim) || (typeof sim[cmd]!='function'))
 			return respond(resp, 405, 'invalid command');
@@ -221,13 +222,14 @@ function ServerPelagium(topLevelPath, persistence) {
 			if(result!==true)
 				return respond(resp, result[0], result[1]);
 		}
-		if(match.sim[cmd](user.party, params, function(data, code) {
+		if(match.sim[cmd](user.party, params, (data, code)=>{
 			if((data!==null) && (typeof data == 'object') && ('serialize' in data))
 				data = data.serialize();
 			respond(resp, code ? code : data ? 200 : 204, data);
 		}) && this.storage) {
 			this.storage.setItem(match.id, this.matchSerialize(match.id));
 		}
+		return true;
 	}
 
 	this.path = topLevelPath;
@@ -240,14 +242,18 @@ function ServerPelagium(topLevelPath, persistence) {
 		this.resumeFrom(this.storage);
 	}
 
-	setInterval(function(self) { self.collectGarbage(); }, cfg.gcInterval * 1000, this);
+	setInterval(()=>{ this.collectGarbage(); }, cfg.gcInterval * 1000);
 }
 Sim.loadScenarios(cfg.scenarios);
-var serverPelagium = new ServerPelagium('pelagium', cfg.persistence);
+let serverPelagium = new ServerPelagium('pelagium', cfg.persistence);
 
 //------------------------------------------------------------------
 
-var server = httpUtils.createServer(cfg, function(req, resp, url) {
+let server = httpUtils.createServer(cfg, (req, resp, url)=>{
+	if(!url.path.length)
+		return httpUtils.redirect(req, resp, url, { path:[ serverPelagium.path ] });
+
+	console.log(req.method, url.pathname, JSON.stringify(url.query));
 	switch(url.path[0]) { // toplevel services:
 	case 'ping':
 		return httpUtils.respond(resp, 200, 'pong');
@@ -261,12 +267,7 @@ var server = httpUtils.createServer(cfg, function(req, resp, url) {
 		return server.usage(req, resp);
 	case 'serviceworker.js':
 		return httpUtils.serveStatic(resp, url.path[0], __dirname+'/static');
-	default:
-		httpUtils.respond(resp, 404, "Not Found");
 	}
-}, function(req, url) { // redirect handler
-	if(!url.path.length)
-		return { path:[ serverPelagium.path ] };
 });
 server.startTime = new Date();
 server.usage = function(req, resp) {
@@ -294,18 +295,15 @@ server.usage = function(req, resp) {
 			data.process.cpuUsage = process.cpuUsage()
 		httpUtils.respond(resp, 200, data);
 	});
+	return true;
 }
-var serverHttp = null;
+let serverHttp = null;
 if(server.isHttps && cfg.redirectHttp) {
-	serverHttp = httpUtils.createServer(
-		{ ip:cfg.ip, port:cfg.redirectHttp },
-		function(req, resp, url) {
-			httpUtils.respond(resp, 404, "Not Found");
-		},
-		function(req, url) { // redirect handler
-			return { protocol:'https:' };
+	serverHttp = httpUtils.createServer({ ip:cfg.ip, port:cfg.redirectHttp },
+		(req, resp, url)=>{
+			return httpUtils.redirect(req, resp, url, { protocol:'https:', code:301 });
 		}
 	);
 }
 
-httpUtils.onShutdown(function() { console.log( "shutting down." ); });
+httpUtils.onShutdown(()=>{ console.log( "shutting down." ); });
