@@ -16,7 +16,7 @@ function ProductionController(selector, unitColor, callback) {
 
 			var cx = canvas.width/2, cy=canvas.height/2;
 			if(!isSelected)
-				dc.circle(cx,cy, canvas.width*0.5, {fillStyle:'rgba(0,0,0,0.5)'});				
+				dc.circle(cx,cy, canvas.width*0.5, {fillStyle:'rgba(0,0,0,0.5)'});
 			else {
 				dc.circle(cx,cy, canvas.width*0.4, {fillStyle:'rgba(0,0,0,0.5)'});
 

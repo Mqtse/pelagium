@@ -73,7 +73,7 @@ let MissionExpand = function(ai, map, x,y) {
 			if(unit)
 				units.push(unit);
 		}
-		units.sort((a,b) => {
+		units.sort((a,b)=>{
 			let aDist = this.distMap.get(a.x, a.y);
 			let bDist = this.distMap.get(b.x, b.y);
 			return aDist - bDist;
@@ -154,46 +154,113 @@ MissionAttack.prototype.constructor = MissionAttack;
 
 let MissionDefend = function(ai, map, x,y) {
 	this.generateOrders = function(orders) {
-		for(let id in this.units) {
-			let unit = this.verifyUnit(id);
+
+		let heatMap = new MatrixSparse(0);
+		let attackers = [], defenders = [];
+		MissionDefend.nearUnits(this, map, ai.credentials.party, attackers, defenders);
+		attackers.forEach((unit)=>{
+			ai.pathFinder.fastestPath(unit, this, unit.type.medium).forEach((pos)=>{
+				heatMap.incr(pos.x,pos.y, 1);
+			 });
+		});
+		heatMap.incr(this.x, this.y, 6);
+		for(let i=0; i<6; ++i) {
+			let pos = map.neighbor(this, i);
+			heatMap.incr(pos.x, pos.y, 1);
+		}
+
+		defenders = defenders.slice(0, Math.ceil(attackers.length*1.33));
+		defenders.forEach((unit)=>{
 			if(!unit || (unit.x==this.x && unit.y==this.y))
-				continue;
-			// todo, check path length, reachability, etc.
-			let order = { type:'move', unit:id,
-				from_x:unit.x, from_y:unit.y, to_x:this.x, to_y:this.y };
+				return; // remain on objective
+
+			// intersect unit's field of movement with heatmap, find optimal pos/overlap:
+			let fom = unit.getFieldOfMovement(map, attackers);
+			if(!fom)
+				return;
+
+			let bestValue = heatMap.get(unit.x, unit.y);
+			let dest = null;
+			for(let i=0; i<fom.length; ++i) {
+				let pos = fom[i];
+				let currentValue = heatMap.get(pos.x, pos.y);
+
+				let enemy = map.get(pos.x,pos.y).unit;
+				if(enemy && enemy.party.id !=  ai.credentials.party) {
+					let defense = enemy.getDefense(map);
+					let attack = unit.type.attack;
+					if(defense >= attack)
+						continue;
+					if(attack >= defense*1.5)
+						currentValue += 1; // prefer promising attacks
+				}
+
+				if(currentValue>bestValue) {
+					bestValue = currentValue;
+					dest = pos;
+				}
+				// future improvement: check positions blocking multiple paths
+			}
+			if(dest===null) { // at least move closer to obj
+				// find tile in fom with lowest distance:
+				let distMin = Number.MAX_VALUE;
+				fom.forEach((pos)=>{
+					let path = ai.pathFinder.fastestPath(pos, this, unit.type.medium);
+					if(!path.length)
+						return;
+					let dist = path[path.length-1].cost;
+					if(dist<distMin) {
+						distMin = dist;
+						dest = pos;
+					}
+				});
+			}
+			if(dest===null)
+				return;
+
+			let order = { type:'move', unit:unit.id,
+				from_x:unit.x, from_y:unit.y, to_x:dest.x, to_y:dest.y };
 			console.log(this.type, order);
 			orders.push(order);
-		}
+			heatMap.set(dest.x, dest.y, 0); // avoid multiple assignments to same dest
+		});
 	}
 	this.isOver = function() {
-		return MissionDefend.checkNeed(this,ai.map,ai.credentials.party)===false;
+		return MissionDefend.checkNeed(this, ai.map, ai.credentials.party)===false;
 	}
 	Mission.call(this, 'defend', ai, map, x, y);
 }
 MissionDefend.prototype = Object.create(Mission.prototype);
 MissionDefend.prototype.constructor = MissionDefend;
 
+MissionDefend.nearUnits = function(obj, map, party, attackers, defenders) {
+	let pushUnit = function(unit) {
+		if(unit.party.id==party)
+			defenders.push(unit);
+		else
+			attackers.push(unit);
+	}
+
+	let unit = map.get(obj.x,obj.y).unit;
+	if(unit)
+		pushUnit(unit);
+	for(let j=0; j<36; ++j) {
+		let pos = map.neighbor(obj, j);
+		let tile = map.get(pos.x, pos.y);
+		if(tile && tile.unit)
+			pushUnit(tile.unit);
+	}
+}
+
 MissionDefend.checkNeed = function(obj, map, party) {
 	if(obj.party != party)
 		return false;
 
-	let defenders = [];
-	let unit = map.get(obj.x,obj.y).unit;
-	if(unit && unit.party.id==party)
-		defenders.push(unit);
-	let attackers = [];
-	for(let j=0; j<36; ++j) {
-		let pos = map.neighbor(obj, j);
-		let tile = map.get(pos.x, pos.y);
-		if(!tile || !tile.unit)
-			continue;
-		if(tile.unit.party.id!=party)
-			attackers.push(tile.unit);
-		else
-			defenders.push(tile.unit);
-	}
+	let attackers = [], defenders = [];
+	MissionDefend.nearUnits(obj, map, party, attackers, defenders);
 	if(attackers.length===0)
 		return false;
+
 	return defenders.slice(0, Math.ceil(attackers.length*1.33)); // might be []
 }
 
@@ -201,17 +268,16 @@ let AI = function(sim, credentials) {
 	this.handleTerrain = function(data) {
 		console.log('terrain received');
 
-		this.map = new MatrixHex(data);
+		let map = this.map = new MatrixHex(data);
 		this.objectives = [];
-		let page = this.map;
-		for(let x=0; x!=page.width; ++x) {
-			for(let y=0; y!=page.height; ++y) {
-				let tile = { terrain:page.get(x, y) };
+		for(let x=0; x!=map.width; ++x) {
+			for(let y=0; y!=map.height; ++y) {
+				let tile = { terrain:map.get(x, y) };
 				if(tile.terrain == MD.OBJ) {
 					tile.id = this.objectives.length;
 					this.objectives.push({ id:tile.id, x:x, y:y });
 				}
-				page.set(x,y, tile);
+				map.set(x,y, tile);
 			}
 		}
 
@@ -219,6 +285,7 @@ let AI = function(sim, credentials) {
 		this.sim.getSituation(this.credentials.party, null, (data)=>{
 			this.handleSituation(data);
 		});
+		this.emit('terrain', data);
 	}
 	this.handleSimEvents = function(events) {
 		this.simEvents = events;
@@ -249,6 +316,7 @@ let AI = function(sim, credentials) {
 		this.sim.getSituation(this.credentials.party, null, (data)=>{
 			this.handleSituation(data);
 		});
+		this.emit('simEvents', events);
 	}
 	this.handleSituation = function(data) {
 		console.log('situation received, turn', data.turn);
@@ -278,7 +346,6 @@ let AI = function(sim, credentials) {
 				delete obj.production;
 				delete obj.progress;
 			}
-
 		}
 
 		this.fov = new MatrixHex(data.fov);
@@ -286,6 +353,7 @@ let AI = function(sim, credentials) {
 		this.state = data.state;
 		if(!data.ordersReceived)
 			setTimeout(()=>{ this.update(); }, 1000);
+		this.emit('situation', data);
 	}
 	this.update = function() { // main method
 		if(this.state=='over')
@@ -458,7 +526,8 @@ let AI = function(sim, credentials) {
 
 	this.init = function() {
 		this.sim.getSimEvents(this.credentials.party, null, (data)=>{
-			this.handleSimEvents(data); });
+			this.handleSimEvents(data);
+		});
 		this.sim.getTerrain(this.credentials.party, null, (data)=>{
 			this.handleTerrain(data);
 		});
@@ -497,12 +566,12 @@ let AI = function(sim, credentials) {
 
 	setTimeout(()=>{ this.init(); }, 0);
 }
-AI.create = function(cmd, id, callback) {
+AI.create = function(cmd, id, callback, allEvents) {
 	let params = { mode:'AI', cmd:cmd, id:id, name:'AI' };
 	let sim = new SimProxy(params, (credentials, sim)=>{
 		let ai = AI.instance = new AI(sim, credentials);
 		callback('credentials', credentials);
-		ai.on('error', callback);
+		ai.on(allEvents ? '*' : 'error', callback);
 	});
 	sim.on('error', callback);
 }

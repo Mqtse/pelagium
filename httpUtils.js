@@ -162,7 +162,7 @@ function createServer(cfg, handlers) {
 			for(let i=0, end=handlers.length; i!=end; ++i)
 				if(handlers[i](req, resp, url))
 					return;
-			httpUtils.respond(resp, 404, "Not Found");
+			respond(resp, 404, "Not Found");
 		}
 		if(req.method!='POST')
 			return handle();

@@ -36,16 +36,6 @@ html, body {
 	top: 0;
 }
 
-#log {
-	position: absolute;
-	left:0;
-	top:24px;
-	z-index:4;
-	width:100%;
-	height:calc(100% - 48px);
-	overflow-y: scroll;
-}
-
 #controls {
 	width:100%;
 	height:24px;
@@ -84,43 +74,177 @@ html, body {
 }
 		</style>
 
+		<script type="text/javascript" src="/static/color.js"></script>
+		<script type="text/javascript" src="/static/seedrandom.js"></script>
 		<script type="text/javascript" src="/static/masterdata.js"></script>
 		<script type="text/javascript" src="/static/infra.js"></script>
 		<script type="text/javascript" src="/static/shared.js"></script>
 		<script type="text/javascript" src="/static/pathfinder.js"></script>
 		<script type="text/javascript" src="/static/sim_proxy.js"></script>
+		<script type="text/javascript" src="/static/renderer.js"></script>
 		<script type="text/javascript" src="/static/ai.js"></script>
 		<script type="text/javascript">
 window.onerror = function(msg, url, linenumber) {
 	alert('Error message: '+msg+'\nURL: '+url+'\nLine Number: '+linenumber);
 }
 
+function scanNbh(nbh, pos) { // for transitions to other pois
+	let id = nbh.get(pos.x, pos.y).id;
+	if(typeof id != 'number')
+		return null;
+	let isOpen = new MatrixHex(nbh.width, nbh.height, true);
+	isOpen.set(pos.x, pos.y, false);
+	let open = [ {x:pos.x, y:pos.y} ];
+	let transitions = { };
+
+	for(let i=0; i<open.length; ++i) {
+			let pos = open[i];
+			let distToPoi =  nbh.get(pos.x, pos.y).dist;
+			for(let dir=0; dir<6; ++dir) {
+				let nbPos = nbh.polar2hex(pos, dir);
+				let nbOpen = isOpen.get(nbPos.x, nbPos.y);
+				if(!nbOpen)
+					continue;
+
+				let nb = nbh.get(nbPos.x, nbPos.y);
+				if(nb===null || (typeof nb.id !== 'number'))
+					continue;
+
+				if(nb.id === id) { // new tile of own neighborhood
+					open.push(nbPos);
+					isOpen.set(nbPos.x, nbPos.y, false);
+					continue;
+				}
+				// tile of different nbh:
+				let dist = distToPoi + nb.dist;
+				let transition = transitions[nb.id];
+				if(!transition || transition.dist>dist)
+					transitions[nb.id] = { from:{x:pos.x, y:pos.y}, to:{x:nbPos.x, y:nbPos.y}, dist:dist };
+			}
+		}
+		return transitions;
+}
+
 const $ = function(pattern) { return document.querySelector(pattern); }
 let app = {
+	init: function() {
+		this.background = document.getElementById('background');
+		this.background.dc = extendCanvasContext(this.background.getContext("2d"));
+		this.foreground = document.getElementById('foreground');
+		this.foreground.dc = extendCanvasContext(this.foreground.getContext("2d"));
+		this.vp = { x:0, y:0, width:1, height:1 };
+		this.cellMetrics = MapHex.calculateCellMetrics(24);
+		this.resize();
+		window.onresize = function() { app.resize(); }
+
+		let pathFinder = new PathFinder(this.mapView);
+		let nbh = this.dataView = pathFinder.nbhMap(this.objectives, MD.GROUND);
+		let transitions = [];
+		this.objectives.forEach((obj)=>{ transitions.push(scanNbh(nbh, obj)) });
+		console.log(transitions);
+		this.update();
+	},
+
+	resize: function(scaleOnly) {
+		var reservedWidth=0, reservedHeight=0;
+		if(!('offsetX' in this.vp)) {
+			this.vp.offsetX = 0.5*this.cellMetrics.r;
+			this.vp.offsetY = 0;
+		}
+		if(!scaleOnly) {
+			this.background.width = this.foreground.width = window.innerWidth-reservedWidth;
+			this.background.height = this.foreground.height = window.innerHeight-reservedHeight;
+		}
+		this.vp.width = Math.ceil(1.25+this.background.width/this.cellMetrics.w);
+		this.vp.height = Math.ceil(1.5+this.background.height/this.cellMetrics.h);
+	},
+
+	drawData: function(canvas, data, vp, cellMetrics) {
+		let dc = canvas.getContext('2d');
+		const lineWidth = Math.max(cellMetrics.r/8, 1.5);
+
+		const colors = [];
+		for(let i=0; i<16; ++i) {
+			let hue = Math.round(i*360/16);
+			if(i%2)
+				hue = (hue+180)%360;
+			colors.push('hsla('+hue+',100%,66%,0.5)');
+		}
+
+		for(var x=Math.max(0,vp.x), xEnd=Math.min(vp.x+vp.width, data.width); x<xEnd; ++x) {
+			var offsetX = vp.offsetX ? vp.offsetX : 0;
+			var offsetY = vp.offsetY ? vp.offsetY : 0;
+			if(x%2) 
+				offsetY+=0.5*cellMetrics.h;
+			for(var y=Math.max(0,vp.y), yEnd=Math.min(vp.y+vp.height, data.height); y<yEnd; ++y) {
+				var tile = data.get(x,y);
+				if(!tile || !('id' in tile) || !tile.dist)
+					continue;
+				var cx = (x-vp.x)*cellMetrics.w+offsetX, cy = (y-vp.y)*cellMetrics.h+offsetY;
+				dc.circle(cx, cy, cellMetrics.r*0.7, { fillStyle:colors[tile.id%colors.length] });
+			}
+		}
+	},
+
+	draw: function() {
+		if(this.mapView) {
+			this.background.dc.clearRect(0, 0, this.background.width, this.background.height);
+			MapHex.draw(this.background, this.mapView, this.vp, this.cellMetrics, null, true);
+		}
+		if(this.dataView) {
+			this.foreground.dc.clearRect(0, 0, this.foreground.width, this.foreground.height);
+			this.drawData(this.foreground, this.dataView, this.vp, this.cellMetrics);
+		}
+	},
+
+	update: function() {
+		this.draw();
+		requestAnimationFrame(()=>{ this.update(); });
+	},
+
 	start: function(mode) {
 		let id = $('#code').value;
 		if(!id)
 			return this.error('id required.');
 		this.status(mode+' '+id+'...');
 
-		let self = this;
-		AI.create(mode, id, function(evt, data) {
-			if(evt=='credentials')
+		AI.create(mode, id, (evt, data)=>{
+			if(evt=='credentials') {
 				$('#code').value = data.id;
+				this.status('credentials received');
+			}
+			else if(evt=='terrain')
+				this.handleTerrain(data);
 			else if(evt=='error')
-				self.error(data);
-		});
+				this.error(data);
+			else console.log('unhandled AI event:', evt);
+		}, true);
 	},
-	log: function(msg) {
-		this.status(msg);
-		$('#log').innerHTML += msg + '<br/>';
+	handleTerrain: function(data) {
+		let map = this.mapView = new MatrixHex(data);
+		this.objectives = [];
+		for(let x=0; x!=map.width; ++x) {
+			for(let y=0; y!=map.height; ++y) {
+				let tile = { terrain:map.get(x, y) };
+				if(tile.terrain == MD.OBJ) {
+					tile.id = this.objectives.length;
+					this.objectives.push({ id:tile.id, x:x, y:y });
+				}
+				map.set(x,y, tile);
+			}
+		}
+		this.init();
 	},
 	status: function(msg) {
 		$('#status').innerHTML = msg;
 	},
 	error: function(msg) {
-		this.log('ERROR '+msg);
-	}
+		this.status('ERROR '+msg);
+	},
+
+	objectives:[],
+	mapView: null,
+	dataView:null
 };
 		</script>
 	</head>
@@ -135,8 +259,6 @@ let app = {
 		><div id="map" style="position:relative;"
 			><canvas id="background" style="z-index:0;"></canvas
 			><canvas id="foreground" style="z-index:1;"></canvas
-		></div
-		><div id="log"
 		></div
 		><div id="controls"
 			><span id="status">messages are displayed here.</span

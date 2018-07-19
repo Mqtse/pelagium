@@ -1,0 +1,10 @@
+{ 
+	"seed":"groc",
+	"visibility":"public",
+	"tiles": [
+		{"x":7,"y":13, "terrain":1},
+		{"x":7,"y":17, "terrain":1},
+		{"x":8,"y":14, "terrain":1},
+		{"x":19,"y":15, "terrain":2}
+	]
+}

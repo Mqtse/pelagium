@@ -403,9 +403,7 @@ function Sim(params, callback) {
 
 	this._evaluateCombat = function(attacker, attackFrom, defender, events) {
 		var attack = attacker.type.attack;
-		var defense = defender.type.defend;
-		var location = this.map.get(defender.x, defender.y);
-		defense *= MD.Terrain[location.terrain].defend;
+		var defense = defender.getDefense(this.map);
 
 		// evaluate support:
 		for(var i=0; i<18; ++i) {

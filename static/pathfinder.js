@@ -175,10 +175,43 @@ function PathFinder(map) {
 				dists.set(nb.x, nb.y, cost+dist);
 				if(!opens.get(nb.x, nb.y)) { // avoid repeated pushes of same pos
 					open.push(nb);
-					opens.set(pos.x, pos.y, true);
+					opens.set(nb.x, nb.y, true);
 				}
 			}
 		}
 		return dists;
+	}
+
+	// neighborhood map of multiple points of interest
+	this.nbhMap = function(pois, unitMedium) {
+		let open = pois.slice(0); // shallow copy
+		let opens = new MatrixHex(map.width, map.height, false);
+		let nbh = new MatrixHex(map.width, map.height, null);
+		pois.forEach((pos)=>{
+			opens.set(pos.x, pos.y, true);
+			nbh.set(pos.x, pos.y, {id:pos.id, dist:0});
+		});
+
+		for(let i=0; i<open.length; ++i) {
+			const pos = open[i];
+			opens.set(pos.x, pos.y, false);
+			let dist = nbh.get(pos.x, pos.y).dist;
+			for(let dir=0; dir<6; ++dir) {
+				let cost = this.movementCost(pos, dir, unitMedium); // this might be optimized, read values of pos only once
+				if(cost<=0)
+					continue;
+				let nbPos = map.polar2hex(pos, dir);
+				let nb = nbh.get(nbPos.x, nbPos.y);
+				if(nb!==null && cost+dist>=nb.dist)
+					continue;
+				nbh.set(nbPos.x, nbPos.y, { id:pos.id, dist:cost+dist, pred:{x:pos.x, y:pos.y} });
+				if(!opens.get(nbPos.x, nbPos.y)) { // avoid repeated pushes of same pos
+					nbPos.id = pos.id;
+					open.push(nbPos);
+					opens.set(nbPos.x, nbPos.y, true);
+				}
+			}
+		}
+		return nbh;
 	}
 }

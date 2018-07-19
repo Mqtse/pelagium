@@ -196,6 +196,7 @@ MatrixHex.rleDecode = function(data) {
 function MatrixSparse(defaultValue) {
 	this.get = function(x,y) { var key = x+'_'+y; return (key in this.data) ? this.data[key] : defaultValue; }
 	this.set = function(x,y, value) { this.data[x+'_'+y] = value; }
+	this.incr = function(x,y, delta) { this.data[x+'_'+y] = this.get(x,y)+delta; }
 	this.isInside = function(pos) { return true; }
 	this.data = {};
 }
@@ -803,6 +804,11 @@ function Unit(data) {
 			step = step.pred;
 		} while(step.x!=this.x || step.y!=this.y);
 		return path.reverse();
+	}
+
+	this.getDefense = function(map) {
+		var location = map.get(this.x, this.y);
+		return this.type.defend * MD.Terrain[location.terrain].defend;
 	}
 
 	this.type = MD.Unit[data.type ? data.type : 'inf'];
