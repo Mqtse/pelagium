@@ -81,7 +81,7 @@ eludi = {
 
 		if(typeof target.style.touchAction != 'undefined')
 			target.style.touchAction = 'none';
-		target.oncontextmenu = ()=>{ return false; }
+		target.oncontextmenu = (e)=>{ return false; }
 
 		this.normalizeEvents.pointerDown=[];
 		if(window.PointerEvent)
@@ -109,9 +109,12 @@ eludi = {
 					return i;
 		}
 		let writePointerId = function(pointerId) {
-			for(let i=0; ; ++i)
-				if(pointersDown[i] === undefined)
+			for(let i=0; ; ++i) {
+				if(pointersDown[i] === pointerId)
+					return -1;
+				else if(pointersDown[i] === undefined)
 					return i;
+			}
 		}
 
 		let events = [];

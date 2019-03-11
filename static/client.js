@@ -270,6 +270,8 @@ client = {
 				this.pinch[event.id].y += dy;
 				var dist1 = Math.sqrt(Math.pow(this.pinch[1].x-this.pinch[0].x, 2)
 					+ Math.pow(this.pinch[1].y-this.pinch[0].y, 2));
+				if(!dist0)
+					return;
 				var factor = dist1 / dist0;
 				var centerX = Math.round((this.pinch[0].x+this.pinch[1].x)/2);
 				var centerY = Math.round((this.pinch[0].y+this.pinch[1].y)/2);
