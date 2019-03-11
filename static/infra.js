@@ -73,29 +73,22 @@ eludi = {
 		target.addEventListener('keydown', callback);
 	},
 	addPointerEventListener: function(target, callback) {
-		var cb = function(e) {
-			var events = eludi.normalizeEvents(e);
-			for(var i=0; i<events.length; ++i)
+		let cb = (e)=>{
+			for(let i=0, events = this.normalizeEvents(e); i<events.length; ++i)
 				callback(events[i]);
 			return true;
 		}
 
 		if(typeof target.style.touchAction != 'undefined')
 			target.style.touchAction = 'none';
-		target.oncontextmenu = function(e){ return false; }
+		target.oncontextmenu = ()=>{ return false; }
 
 		this.normalizeEvents.pointerDown=[];
-		if(window.PointerEvent) {
+		if(window.PointerEvent)
 			target.onpointerdown = target.onpointermove = target.onpointerup = target.onpointerout
-				= function(event) { return cb(event); };
-		}
-		else {
-			target.onmousedown = target.onmousemove = target.onmouseup = target.onmouseout
-				= function(event) { return cb(event); };
-			target.ontouchstart = function(event) { this.onmousedown=null; return cb(event); };
-			target.ontouchend = function(event) { this.onmouseup=null; return cb(event); };
-			target.ontouchmove = function(event) { this.onmousemove=null; return cb(event); };
-		}
+				= /*target.onpointerenter = target.onpointerleave =*/ cb;
+		else
+			target.ontouchstart = target.ontouchend = target.ontouchmove = cb;
 	},
 	addWheelEventListener: function(callback) {
 		var wheelNormalize = function(e){
@@ -109,37 +102,60 @@ eludi = {
 		window.addEventListener('wheel', wheelNormalize, false);
 	},
 	normalizeEvents: function(e) {
-		var pointersDown = this.normalizeEvents.pointerDown;
-		var readPointerId = function(pointerId) {
-			for(var i=0, end=pointersDown.length; i!=end; ++i)
+		let pointersDown = this.normalizeEvents.pointerDown;
+		let readPointerId = function(pointerId) {
+			for(let i=0, end=pointersDown.length; i!=end; ++i)
 				if(pointersDown[i]==pointerId)
 					return i;
 		}
-		var writePointerId = function(pointerId) {
- 			for(var i=0; ; ++i)
+		let writePointerId = function(pointerId) {
+			for(let i=0; ; ++i)
 				if(pointersDown[i] === undefined)
 					return i;
 		}
 
-		if(!e)
-			e = window.event;
-		if (e.preventManipulation)
-			e.preventManipulation();
-		if (e.preventDefault)
+		let events = [];
+		if(window.PointerEvent) { // pointer events
+			let id, type = null;
+			if(e.type in {'pointerdown':true, 'pointerenter':true}) {
+				id = (e.pointerType=='mouse') ? e.button : writePointerId(e.pointerId);
+				if(id>=0) {
+					type = 'start';
+					pointersDown[id] = e.pointerId;
+				}
+			}
+			else if(e.type in {'pointerup':true, 'pointerout':true, 'pointerleave':true}) {
+				id = readPointerId(e.pointerId);
+				if(id===undefined)
+					return false;
+				type = 'end';
+				delete pointersDown[id];
+			}
+			else if(e.type=='pointermove') {
+				id = readPointerId(e.pointerId);
+				if(id!==undefined)
+					type = 'move';
+				else if(e.pointerType=='mouse')
+					type = 'hover';
+			}
+			if(type) events.push({ type:type, target:e.target, id:id || 0, pointerType:e.pointerType,
+				pageX:e.pageX, pageY:e.pageY,
+				clientX:e.clientX,clientY:e.clientY,
+				x:e.offsetX,y:e.offsetY });
+		}
+		else if(e.type in { 'touchstart':true, 'touchmove':true, 'touchend':true, 'touchcancel':true, 'touchleave':true }) {
 			e.preventDefault();
 
-		var events = [];
-		if(e.type in { 'touchstart':true, 'touchmove':true, 'touchend':true, 'touchcancel':true, 'touchleave':true }) {
-			var node = e.target;
-			var offsetX = 0, offsetY=0;
+			let node = e.target;
+			let offsetX = 0, offsetY=0;
 			while(node && (typeof node.offsetLeft != 'undefined')) {
 				offsetX += node.offsetLeft;
 				offsetY += node.offsetTop;
 				node = node.offsetParent;
 			}
-			for(var i=0; i<e.changedTouches.length; ++i) {
-				var touch = e.changedTouches[i];
-				var id, type = e.type.substr(5);
+			for(let i=0; i<e.changedTouches.length; ++i) {
+				let touch = e.changedTouches[i];
+				let id, type = e.type.substr(5);
 				if(type=='start') {
 					id = writePointerId(touch.identifier);
 					pointersDown[id] = touch.identifier;
@@ -158,61 +174,6 @@ eludi = {
 					clientX:touch.clientX,clientY:touch.clientY,
 					x: touch.clientX - offsetX, y: touch.clientY - offsetY });
 			}
-		}
-		else if(window.PointerEvent) { // pointer events
-			var id, type = null;
-			if(e.type=='pointerdown') {
-				type = 'start';
-				id = (e.pointerType=='mouse') ? e.button : writePointerId(e.pointerId);
-				pointersDown[id] = e.pointerId;
-			}
-			else if(e.type in {'pointerup':true, 'pointerout':true}) {
-				id = readPointerId(e.pointerId);
-				if(id===undefined)
-					return false;
-				type = 'end';
-				delete pointersDown[id];
-			}
-			else if(e.type=='pointermove') {
-				id = readPointerId(e.pointerId);
-				if(id!==undefined)
-					type = 'move';
-				else if(e.pointerType=='mouse') 
-					type = 'hover';
-			}
-			if(type) events.push({ type:type, target:e.target, id:id, pointerType:e.pointerType,
-				pageX:e.pageX, pageY:e.pageY,
-				clientX:e.clientX,clientY:e.clientY,
-				x:e.offsetX,y:e.offsetY });
-		}
-		else { // mouse events:
-			if(e.offsetX===undefined) { // Firefox
-				var target = e.target || e.srcElement,
-					rect = target.getBoundingClientRect();
-				e.offsetX = e.clientX - rect.left,
-				e.offsetY = e.clientY - rect.top;
-			}
-			if(e.pageX===undefined) {
-				e.pageX = e.clientX + document.body.scrollLeft + document.documentElement.scrollLeft;
-				e.pageY = e.clientY + document.body.scrollTop + document.documentElement.scrollTop;
-			}
-			var type = null, id = e.button;
-			if(e.type=='mousedown') {
-				type = 'start';
-				pointersDown[id] = true;
-			}
-			else if(e.type in {'mouseup':true, 'mouseout':true}) {
-				if(pointersDown[id])
-					type = 'end';
-				pointersDown[id] = false;
-			}
-			else if(e.type=='mousemove')
-				type = pointersDown[id] ? 'move' : 'hover';
-
-			if(type) events.push({ type:type, target:e.target, id:id, pointerType:'mouse',
-				pageX:e.pageX, pageY:e.pageY,
-				clientX:e.clientX,clientY:e.clientY,
-				x:e.offsetX,y:e.offsetY });
 		}
 		return events.length ? events : false;
 	},
@@ -272,12 +233,13 @@ function ButtonController(selector, callback) {
 		for(var i=0, end=element.children.length; i<end; ++i) {
 			var child = element.children[i];
 			if(child.dataset.id == mode) {
-				child.style.display='';
+				child.style.display = '';
 				this.mode = mode;
 			}
 			else
 				child.style.display='none';
 		}
+		element.style.display = '';
 		return this;
 	}
 	this.setBackground = function(bg) {
@@ -293,9 +255,14 @@ function ButtonController(selector, callback) {
 			child.style.animation = hasFocus ? 'focus_keyframes 1.33s infinite ease-in-out' : '';
 		return this;
 	}
+	this.show = function() {
+		element.style.display = '';
+	}
+	this.hide = function() {
+		element.style.display = 'none';
+	}
 	this.mode = '';
-	var self = this;
-	element.onclick = function(evt) {
-		callback({type:self.mode, currentTarget:evt.currentTarget});
+	element.onclick = (evt)=>{
+		callback({type:this.mode, currentTarget:evt.currentTarget});
 	};
 }

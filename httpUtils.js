@@ -7,15 +7,14 @@ const fs = require('fs');
 let jsonLenMax = 1024*100;
 let bodyLenMax = 1024*500;
 
-function respond(resp, code, body) {
+function respond(resp, code, body, mime) {
 	if(Array.isArray(code)) {
 		body = code[1];
 		code = code[0];
 	}
 	let headers = { 'Cache-Control': 'no-cache, no-store, must-revalidate, proxy-revalidate', 'Pragma':'no-cache',
 		'Access-Control-Allow-Origin':'*' };
-	if(typeof body == 'object')
-		headers['Content-Type']='application/json';
+	headers['Content-Type'] = mime ? mime : (typeof body == 'object') ? 'application/json' : 'text/plain';
 	console.log('>>', code, body);
 	if(code==204) {
 		resp.writeHead(code, headers);
@@ -23,7 +22,8 @@ function respond(resp, code, body) {
 	}
 	else if(code==200) {
 		resp.writeHead(code, headers);
-		resp.end((typeof body == 'object') ? JSON.stringify(body) : body);
+		resp.end((typeof body == 'object') ? JSON.stringify(body)
+			: (typeof body == 'number') ? body.toString() : body);
 	}
 	else setTimeout(()=>{ // thwart brute force attacks
 		headers['Content-Type']='application/json';

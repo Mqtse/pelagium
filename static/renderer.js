@@ -1,12 +1,15 @@
 function extendCanvasContext(dc) {
 	dc.circle = function(x,y,r, style) {
-		if(style!==undefined) for(var key in style)
-			this[key] = style[key];
+		if(style!==undefined)
+			for(var key in style)
+				this[key] = style[key];
 		this.beginPath();
 		this.arc(x,y, r, 0, 2*Math.PI, true);
 		this.closePath();
-		if(style.fillStyle) this.fill();
-		if(style.strokeStyle) this.stroke();
+		if(style.fillStyle)
+			this.fill();
+		if(style.strokeStyle)
+			this.stroke();
 	}
 	dc.strokeCircle=function(x,y,r) {
 		this.beginPath();
@@ -20,26 +23,12 @@ function extendCanvasContext(dc) {
 		this.lineTo(x2,y2);
 		this.stroke();
 	}
-	dc.dashedLine = function(x, y, x2, y2, da) {
-		if (!da) da = [10,5];
+	dc.dashLine = function(x1, y1, x2, y2, da = [10,5]) {
 		this.save();
-		var dx = (x2-x), dy = (y2-y);
-		var len = Math.sqrt(dx*dx + dy*dy);
-		var rot = Math.atan2(dy, dx);
-		this.translate(x, y);
-		this.moveTo(0, 0);
-		this.rotate(rot);
-		var dc = da.length;
-		var di = 0, draw = true;
-		x = 0;
-		while (len > x) {
-			x += da[di++ % dc];
-			if (x > len) x = len;
-			draw ? this.lineTo(x, 0): this.moveTo(x, 0);
-			draw = !draw;
-		}
+		this.setLineDash(da);
+		this.strokeLine(x1,y1, x2,y2);
 		this.restore();
-	}
+}
 	dc.hex = function(x,y,r, style) {
 		var rx = r/2, ry = Math.sin(Math.PI/3)*r;
 		if(style!==undefined) for(var key in style)

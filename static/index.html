@@ -11,12 +11,12 @@
 		<meta name="viewport" content="user-scalable=no, width=device-width" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="white" />
-		<link rel="apple-touch-icon-precomposed" href="/static/icon_island256.png" />
+		<link rel="apple-touch-icon" href="/static/icon_island256.png" />
 		<link rel="icon" sizes="192x192" href="/static/icon_island192.png" />
 		<link rel="shortcut icon" href="/static/favicon.ico" />
 		<link rel="manifest" href="/static/manifest.json" />
 		<link href='/static/fonts.css' rel='stylesheet' type='text/css'>
-		
+
 		<style type="text/css">
 html, body {
 	overflow:hidden;
@@ -24,9 +24,11 @@ html, body {
 	margin: 0 auto;
 	font-family: 'Montserrat', sans-serif;
 	font-size: calc(0.9*(5vw + 3vh));
+	-webkit-text-size-adjust: 100%;
 	text-transform: uppercase;
 	color:white;
 	background: url(/static/pelagium.svg) left / contain no-repeat, url(/static/scillies.jpg) 50% / cover rgb(130,160,200);
+	touch-action: none;
 }
 
 :focus { outline: none; }
@@ -106,7 +108,7 @@ ul#scenarios {
 	position:relative;
 	margin-right:2vh;
 }
-#scenarios canvas {
+#scenarios canvas, #scenario_preview {
 	background: rgb(130,160,200);
 }
 #scenarios div {
@@ -126,7 +128,7 @@ ul#scenarios {
 }
 #custom_scenario svg {
 	width:5vw;
-	height:5vw; 
+	height:5vw;
 	opacity:0.75;
 }
 #custom_scenario svg:hover { opacity:1.0; }
@@ -175,6 +177,12 @@ ul#scenarios {
 	width: 25vw;
 	text-align: left;
 }
+
+.party_player li {
+	display:inline;
+	font-size:50%;
+	padding-right:1em;
+}
 		</style>
 
 		<script type="text/javascript" src="/static/infra.js"></script>
@@ -213,6 +221,8 @@ let StatsTable = function(table) {
 		return this;
 	}
 	this.progress = function(row, col, fraction, color, opacity) {
+		if(typeof fraction != 'number')
+			fraction = 0;
 		let td = table.children[row].children[col];
 		if(td.children.length==1)
 			td.insertBefore(document.createElement('div'), td.firstChild);
@@ -260,52 +270,56 @@ app = {
 				this[params.screen](params);
 		}
 	},
-	addScenarios: function(data) {
-		var parent =  document.getElementById("scenarios");
+	drawMap: function(canvas, data) {
+		var dc = canvas.getContext('2d');
+		if(!('hex' in dc))
+			extendCanvasContext(dc);
 
-		for(var id in data) {
-			var li = parent.firstChild.cloneNode(true);
+		var map = new MapHex(data);
+		var page = map.page;
+		for(var x=0; x<page.width; ++x) for(var y=0; y<page.height; ++y) {
+			var tile = page.get(x,y);
+			if(tile.terrain!=MD.WATER)
+				continue;
+			var pos = { x:x, y:y };
+			var nb = null;
+			for(var i=0; i<6 && !nb; ++i) {
+				nb = page.getNeighbor(pos, i);
+				if(nb && nb.terrain==MD.WATER)
+					nb=null;
+			}
+			if(!nb)
+				tile.color=null;
+		}
+
+		var vp = { x:-2, y:1, width:page.width+2, height:page.height-2 };
+		var cellMetrics = MapHex.calculateCellMetrics(canvas.height/(page.height-2));
+		if('devicePixelRatio' in window && window.devicePixelRatio!=1.0) {
+			canvas.style.width = canvas.width + 'px';
+			canvas.style.height = canvas.height + 'px';
+			canvas.width *= window.devicePixelRatio;
+			canvas.height *= window.devicePixelRatio;
+			dc.scale(window.devicePixelRatio, window.devicePixelRatio);
+		}
+		MapHex.draw(canvas, page, vp, cellMetrics);
+	},
+	addScenarios: function(data) {
+		this.scenarios = data;
+
+		let parent = document.getElementById("scenarios");
+		for(let id in data) {
+			let li = parent.firstChild.cloneNode(true);
 			li.style.display='';
 			li.dataset.id = id;
 			li.querySelector('div').innerHTML = id;
-
-			var canvas = li.querySelector('canvas');
-			var dc = canvas.getContext('2d');
-			extendCanvasContext(dc);
-
-			var map = new MapHex(data[id]);
-			var page = map.page;
-			for(var x=0; x<page.width; ++x) for(var y=0; y<page.height; ++y) {
-				var tile = page.get(x,y);
-				if(tile.terrain!=MD.WATER)
-					continue;
-				var pos = { x:x, y:y };
-				var nb=null;
-				for(var i=0; i<6 && !nb; ++i) {
-					nb = page.getNeighbor(pos, i);
-					if(nb && nb.terrain==MD.WATER)
-						nb=null;
-				}
-				if(!nb)
-					tile.color=null;
-			}
-
-			var vp = { x:-2, y:1, width:page.width+2, height:page.height-2 };
-			var cellMetrics = MapHex.calculateCellMetrics(canvas.height/(page.height-2));
-			if('devicePixelRatio' in window && window.devicePixelRatio!=1.0) {
-				canvas.style.width = canvas.width + 'px';
-				canvas.style.height = canvas.height + 'px';
-				canvas.width *= window.devicePixelRatio;
-				canvas.height *= window.devicePixelRatio;
-				dc.scale(window.devicePixelRatio, window.devicePixelRatio);
-			}
-			MapHex.draw(canvas, page, vp, cellMetrics);
-
+			let canvas = li.querySelector('canvas');
+			canvas.id = 'preview_'+id;
+			this.drawMap(canvas, data[id]);
 			parent.appendChild(li);
 		}
 	},
 	start: function(scenario) {
-		if(!navigator.onLine)
+		if(!navigator.onLine && location.hostname != 'localhost')
 			return alert('server connection required for starting a new game');
 		var params = {cmd:'start'};
 		if(!scenario)
@@ -313,6 +327,29 @@ app = {
 		if(scenario)
 			params.scenario = scenario;
 		this.openUrl('/static/pelagium.html', params);
+	},
+	configure: function(scenId) {
+		let screen = document.getElementById("screen_config");
+		screen.querySelector('h2').innerHTML = scenId;
+
+		let canvas = screen.querySelector('canvas');
+		let dc = canvas.getContext('2d');
+		dc.clearRect(0,0, canvas.width, canvas.height);
+		dc.drawImage(document.querySelector('#preview_'+scenId), 0,0, canvas.width, canvas.height);
+
+		let scenario = this.scenarios[scenId];
+		let parent = screen.querySelector('#parties');
+		while(parent.childElementCount>1)
+			parent.removeChild(parent.lastChild);
+		for(let id in scenario.starts) {
+			let li = parent.firstChild.cloneNode(true);
+			li.style.display='';
+			li.dataset.id = id;
+			li.querySelector('div').innerHTML = MD.Party[id].name;
+			parent.appendChild(li);
+		}
+		this.screen('config');
+		//this.start(scenId);
 	},
 	resume: function() {
 		var id = document.getElementById("resume_id").value.toUpperCase();
@@ -339,7 +376,8 @@ app = {
 		let maxValue = function(obj, key) {
 			let value = Number.MIN_VALUE;
 			for(let id in obj)
-				value = Math.max(obj[id][key], value);
+				if(key in obj[id])
+					value = Math.max(obj[id][key], value);
 			return value;
 		}
 
@@ -364,16 +402,17 @@ app = {
 			table.set(1, id, party.objectives).progress(1, id, party.objectives/maxObjectives, MD.Party[id].color, opacity);
 			table.set(2, id, party.units).progress(2, id, party.units/maxUnits, MD.Party[id].color, opacity);
 			table.set(3, id, party.unitsBuilt).progress(3, id, party.unitsBuilt/maxUnitsBuilt, MD.Party[id].color, opacity);
-			table.set(4, id, party.victories).progress(4, id, party.victories/(party.victories+party.defeats), MD.Party[id].color, opacity);
+			table.set(4, id, party.victories || 0).progress(4, id, party.victories/(party.victories+party.defeats), MD.Party[id].color, opacity);
 			table.set(5, id, party.odds.toFixed(2)).progress(5, id, party.odds, MD.Party[id].color, opacity);
 			table.set(6, id, party.score).progress(6, id, party.score/maxScore, MD.Party[id].color, opacity);
 		}
 	},
 	close: function() {
 		window.close();
-	}
+	},
+	scenarios: null
 }
-document.addEventListener("DOMContentLoaded", function() {
+document.addEventListener("DOMContentLoaded", ()=>{
 	app.init(eludi.paramsRequest());
 });
 		</script>
@@ -417,12 +456,32 @@ document.addEventListener("DOMContentLoaded", function() {
 				></div
 				><ul id="scenarios"
 					><li class="scenario_preview" style="display:none;"
-						data-id="default" onclick="app.start(event.currentTarget.dataset.id);"
+						data-id="default" onclick="app.configure(event.currentTarget.dataset.id);"
 						><canvas width="240" height="240"></canvas
 						><div>scenario name</div
 					></li
 				></ul
 				><ul
+					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
+				></ul
+			></div
+
+			><div id="screen_config" style="display:none;"
+				><h2 class="l10n">scenario configuration</h2
+				><canvas id="scenario_preview" width="240" height="240"></canvas
+				><ul id="parties"
+					><li class="party" style="display:none;"
+						><div>party name</div
+						><ul class="party_player"
+							><li>you</li
+							><li>A.I.</li
+							><li>human</li
+							><li>no one</li
+						></ul
+					></li
+				></ul
+				><ul
+					><li onclick="app.start(document.querySelector('#screen_config > h2').innerText);"><span class ="l10n">start</span></li
 					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
 				></ul
 			></div

@@ -42,7 +42,7 @@ function Sim(params, callback) {
 			}
 		}
 		let situation = { units:units, objectives:objs, fov:fov.serialize(true),
-			state:this.state, turn:this.turn, ordersReceived:ordersReceived };
+			state:this.state, turn:this.turn, ordersReceived:ordersReceived, numPartiesMax:this.numParties };
 		if(this.outcome)
 			for(let key in this.outcome)
 				situation[key] = this.outcome[key];

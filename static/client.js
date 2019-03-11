@@ -49,7 +49,7 @@ function ProductionController(selector, unitColor, callback) {
 			isVisible = true;
 		for(var i=0, end=element.children.length; i<end; ++i) {
 			var child = element.children[i];
-			if(child.dataset.id != id) 
+			if(child.dataset.id != id)
 				continue;
 			child.style.display = isVisible ? 'inherit' : 'none';
 			break;
@@ -90,11 +90,11 @@ client = {
 		this.cellMetrics = MapHex.calculateCellMetrics(this.settings.cellHeight);
 		this.resize();
 
-		var self = this;
-		window.onresize=function() { self.resize(); }
-		eludi.addPointerEventListener(this.foreground, function(event) { self.handlePointerEvent(event); });
-		eludi.addWheelEventListener(function(event) { self.viewZoomStep(-event.deltaY, event.x, event.y); });
-		eludi.addKeyEventListener(window, function(event) { self.handleKeyEvent(event); });
+		window.onresize = ()=>{ this.resize(); }
+		window.oncontextmenu = (e)=>{ return false; }
+		eludi.addPointerEventListener(this.foreground, (event)=>{ this.handlePointerEvent(event); });
+		eludi.addWheelEventListener((event)=>{ this.viewZoomStep(-event.deltaY, event.x, event.y); });
+		eludi.addKeyEventListener(window, (event)=>{ this.handleKeyEvent(event); });
 
 		this.state = 'init';
 		this.sim = sim;
@@ -102,6 +102,7 @@ client = {
 		delete credentials.parties;
 		this.credentials = credentials;
 		this.party = credentials.party;
+		this.numPartiesMax = 2;
 		this.mapView = null;
 		this.redrawMap = true;
 		this.fov = null; // field of vision
@@ -128,17 +129,17 @@ client = {
 				this.spawnAI(party.id);
 		}
 
-		this.btnMain = new ButtonController('#toolbar_main', function(evt) { self.handleUIEvent(evt); });
+		this.btnMain = new ButtonController('#toolbar_main', (evt)=>{ this.handleUIEvent(evt); });
 		this.btnMain.setMode('fwd').setBackground(MD.Party[this.party].color);
-		document.getElementById('main_menu').addEventListener("click", function(event) {
-			self.handleUIEvent({ type:event.target.dataset.id }); });
-		document.getElementById('btn_menu').addEventListener("click", function(event) {
-			self.handleUIEvent({ type:event.currentTarget.dataset.id }); });
+		document.getElementById('main_menu').addEventListener("click", (event)=>{
+			this.handleUIEvent({ type:event.target.dataset.id }); });
+		document.getElementById('btn_menu').addEventListener("click", (event)=>{
+			this.handleUIEvent({ type:event.currentTarget.dataset.id }); });
 		if(!document.fullscreenEnabled && !document.webkitFullscreenEnabled)
 			document.querySelector('#main_menu > li[data-id="fullscreen"]').style.display = 'none';
 		document.querySelector('#main_menu > li[data-id="exit"]').style.display = 'none';
 		this.toolbarProduction = new ProductionController('#toolbar_production', MD.Party[this.party].color,
-			function(unitType) { if(self.cursor) self.handleProductionInput(unitType, self.cursor.x, self.cursor.y); });
+			(unitType)=>{ if(this.cursor) this.handleProductionInput(unitType, this.cursor.x, this.cursor.y); });
 		this.toggleToolbar('main');
 		eludi.click2touch();
 
@@ -175,17 +176,32 @@ client = {
 	},
 
 	resize: function(scaleOnly) {
-		var reservedWidth=0, reservedHeight=0;
+		let width = window.innerWidth, height = window.innerHeight;
+		if(navigator.standalone) { // mobile safari webapp hacks
+			if(!('w' in this.resize)) {
+				this.resize.w = screen.width;
+				this.resize.h = screen.height;
+			}
+			if(Math.abs(window.orientation)===90) {
+				width = Math.max(this.resize.w, this.resize.h);
+				height = Math.max(window.innerHeight, Math.min(this.resize.w, this.resize.h)-20);
+			}
+			else {
+				width = Math.min(this.resize.w, this.resize.h);
+				height = Math.max(this.resize.w, this.resize.h)-20;
+			}
+		}
+
 		if(!('offsetX' in this.vp)) {
 			this.vp.offsetX = 0.5*this.cellMetrics.r;
 			this.vp.offsetY = 0;
 		}
 		if(!scaleOnly) {
-			this.background.width = this.foreground.width = window.innerWidth-reservedWidth;
-			this.background.height = this.foreground.height = window.innerHeight-reservedHeight;
+			this.background.width = this.foreground.width = width;
+			this.background.height = this.foreground.height = height;
 		}
-		this.vp.width = Math.ceil(1.25+this.background.width/this.cellMetrics.w);
-		this.vp.height = Math.ceil(1.5+this.background.height/this.cellMetrics.h);
+		this.vp.width = Math.ceil(1.25+width/this.cellMetrics.w);
+		this.vp.height = Math.ceil(1.5+height/this.cellMetrics.h);
 		this.redrawMap = true;
 	},
 
@@ -217,7 +233,7 @@ client = {
 			return;
 		this.currentToolbar = id;
 		eludi.switchToSibling('toolbar_'+id, '');
-		
+
 		if(id=='production' && this.cursor) {
 			var tile = this.mapView.get(this.cursor.x, this.cursor.y);
 			this.toolbarProduction.setProduction(tile.production, tile.progress);
@@ -281,12 +297,11 @@ client = {
 	},
 
 	handleKeyEvent: function(event) {
-		var self = this;
-		var currentCursor = function() {
-			if(!self.cursor)
-				self.cursor = { x:self.vp.x + Math.floor(self.vp.width/2),
-					y:self.vp.y + +Math.floor(self.vp.height/2) };
-			return self.cursor;
+		var currentCursor = ()=>{
+			if(!this.cursor)
+				this.cursor = { x:this.vp.x + Math.floor(this.vp.width/2),
+					y:this.vp.y + +Math.floor(this.vp.height/2) };
+			return this.cursor;
 		}
 		var which = event.which || event.keyCode;
 		switch(which) {
@@ -306,7 +321,7 @@ client = {
 				currentCursor();
 			else
 				this.handleMapInput('click', this.cursor.x, this.cursor.y);
-			event.preventDefault(); 
+			event.preventDefault();
 			break;
 		case 33: // pgup
 			return this.viewZoomStep(-1);
@@ -315,7 +330,7 @@ client = {
 		case 37: // left
 			--currentCursor().x;
 			break;
-		case 38: // up 
+		case 38: // up
 			--currentCursor().y;
 			break;
 		case 39: // right
@@ -362,7 +377,7 @@ client = {
 		}
 	},
 
-	handleProductionInput: function(unitType, x, y) { 
+	handleProductionInput: function(unitType, x, y) {
 		if(this.state!='input')
 			return;
 		var tile = this.mapView.get(x, y);
@@ -416,7 +431,7 @@ client = {
 
 	viewZoomStep: function(delta, centerX, centerY) {
 		var i, scales = this.settings.scales;
-		for(i=0; i<scales.length; ++i) 
+		for(i=0; i<scales.length; ++i)
 			if(this.cellMetrics.h==scales[i])
 				break;
 		var scale = this.cellMetrics.h;
@@ -456,7 +471,7 @@ client = {
 		var cm = this.cellMetrics;
 		vp.offsetX -= dX;
 		vp.offsetY -= dY;
-		vp.x -= (vp.offsetX>=0) ? 
+		vp.x -= (vp.offsetX>=0) ?
 			Math.floor(vp.offsetX / cm.w) : Math.ceil(vp.offsetX / cm.w);
 		vp.y -= (vp.offsetY>=0) ?
 			Math.floor(vp.offsetY / cm.h) : Math.ceil(vp.offsetY / cm.h);
@@ -652,7 +667,7 @@ client = {
 		var x = tile.x;
 		var y = tile.y;
 		var offsetY = this.vp.offsetY;
-		if(x%2) 
+		if(x%2)
 			offsetY+=0.5*this.cellMetrics.h;
 		var radius = this.cellMetrics.r/6;
 		dc.circle((x-this.vp.x)*this.cellMetrics.w+this.vp.offsetX,
@@ -786,6 +801,7 @@ client = {
 		this.turn = parseInt(data.turn);
 		if(this.turn>1)
 			this.hideJoinCredentials();
+		this.numPartiesMax = data.numPartiesMax;
 		this.restoreOrders();
 
 		if(data.state=='running')
@@ -835,7 +851,7 @@ client = {
 
 			if(evt.type=='retreat')
 				this.displayStatus(MD.Party[unit.party.id].name+' '+unit.type.name+' retreats');
-			
+
 			if(!this.isInsideViewport(unit, 2))
 				this.viewCenter(unit.x, unit.y);
 
@@ -941,7 +957,12 @@ client = {
 				party.mode = evt.mode;
 			let name = evt.name || 'opponent';
 			this.displayStatus(name+' has joined as ' + MD.Party[evt.party].name);
-			this.hideJoinCredentials();
+
+			let numParties = 0;
+			for(let id in this.parties)
+				++numParties;
+			if(numParties>=this.numPartiesMax)
+				this.hideJoinCredentials();
 		}
 		console.log('presence event type:', evt.type, 'party:', evt.party);
 	},
@@ -976,7 +997,7 @@ client = {
 					else
 						msg += ' '+MD.Party[id].name;
 				}
-				if(!numParties)
+				if(numParties+1 < this.numPartiesMax)
 					msg += ' &nbsp; join id: '+this.credentials.match;
 				else
 					this.hideJoinCredentials();
@@ -993,7 +1014,7 @@ client = {
 
 		case 'replay':
 			this.cursor = null;
-			this.btnMain.setMode('pause');
+			this.btnMain.hide();
 			this.displayStatus('turn '+this.turn);
 			this.nextSimEvent();
 			break;
@@ -1084,8 +1105,9 @@ client = {
 	}
 }
 
-function main(params) {
-	var sim = new SimProxy(params, (credentials, sim)=>{
+window.addEventListener("load", ()=>{
+	let params = eludi.paramsRequest();
+	let sim = new SimProxy(params, (credentials, sim)=>{
 		if(credentials && sim)
 			client.init(credentials, sim);
 		else
@@ -1095,7 +1117,4 @@ function main(params) {
 		client.modalPopup(msg, ['OK'], function(id) { client.close(); });
 	});
 	sim.on('warn', (evt, msg)=>{ client.displayStatus(msg); });
-}
-window.addEventListener("load", ()=>{ 
-	main(eludi.paramsRequest());
 });

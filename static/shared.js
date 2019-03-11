@@ -203,7 +203,6 @@ function MatrixSparse(defaultValue) {
 
 //------------------------------------------------------------------
 function MapHex(params) {
-	var self = this;
 
 	this.getFieldOfView = function(party) {
 		var units = [ ];
@@ -241,6 +240,7 @@ function MapHex(params) {
 		return this.page.getPolar(x, y, dir, dist);
 	}
 
+	var self = this;
 	this.generators = {
 		islandInhabited: function(seed) {
 			var rnd = new Math.seedrandom(seed);

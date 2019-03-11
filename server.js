@@ -16,6 +16,7 @@ let cfg = {
 	persistence: false,
 	sslPath: false,
 	redirectHttp: false,
+	captive: false,
 	scenarios: 'scenarios'
 }
 httpUtils.parseArgs(process.argv.slice(2), cfg);
@@ -145,10 +146,10 @@ function ServerPelagium(topLevelPath, persistence) {
 	}
 
 	this.collectGarbage = function() {
+		let now = new Date()/1000.0;
 		this.matches.forEach((match, id)=>{
 			if(match.id!=id)
 				return;
-			let now = new Date()/1000.0;
 			if(match.sim.state=='over' && match.sim.lastUpdateTime+cfg.matchOverTimeout < now)
 				this.matchDelete(id);
 			else if(match.sim.lastUpdateTime+cfg.matchTimeout < now)
@@ -268,6 +269,8 @@ let server = httpUtils.createServer(cfg, (req, resp, url)=>{
 	case 'serviceworker.js':
 		return httpUtils.serveStatic(resp, url.path[0], __dirname+'/static');
 	}
+	if(cfg.captive)
+		return httpUtils.redirect(req, resp, url, { path:[ serverPelagium.path ] });
 });
 server.startTime = new Date();
 server.usage = function(req, resp) {
