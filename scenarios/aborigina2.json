@@ -2,5 +2,5 @@
 	"visibility":"hidden",
 	"seed": "pelagium_0_0",
 	"tiles": [ {"x":23,"y":7, "terrain":1}, {"x":24,"y":19, "terrain":1}, {"x":24,"y":20, "terrain":3, "id":12, "party":1} ],
-	"starts": { "1":12, "2":6, "3":2 }
+	"starts": { "1":12, "2":6 }
 }

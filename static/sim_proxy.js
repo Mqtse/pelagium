@@ -190,6 +190,17 @@ function SimProxy(params, callback) {
 		}
 		delete params.id;
 
+		let aiOpponents = [];
+		if(params.cmd=='start' && params.parties) {
+			for(let key in params.parties) {
+				let value = params.parties[key];
+				if(value == 0)
+					params.party = key;
+				else if(value == 1)
+					aiOpponents.push({ party:key, mode:'AI' });
+			}
+		}
+
 		http[method](url, params, (data, code)=>{
 			if(code!=200 || !('match' in data)) {
 				var msg = data.error ? data.error : (params.cmd + ' failed.');
@@ -213,8 +224,13 @@ function SimProxy(params, callback) {
 				return this._handleCredentials(data, params.mode);
 
 			http.post(baseUrl+'/'+matchId, params, (data, code)=>{
-				if(code==200)
+				if(code==200) {
+					for(let i=0; i<aiOpponents.length; ++i) {
+						let ai = aiOpponents[i];
+						data.parties[ai.party] = ai;
+					}
 					return this._handleCredentials(data, params.mode);
+				}
 
 				this.emit('error', 'user registration failed');
 				console.error(msg, 'code:', code, data.error ? data.error : data);

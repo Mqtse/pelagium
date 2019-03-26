@@ -40,14 +40,21 @@ html, body {
 	top: 0;
 }
 
- #controls {
+.noselect {
+	-webkit-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
+	user-select: none;
+}
+
+#controls {
 	width:100%;
-	height:24px;
+	height:20px;
 	position: absolute;
 	left:0;
 	bottom:0;
 	z-index:4;
-	padding: 8px 0;
+	padding: 10px 0;
 	background-color:rgba(0,0,0,0.33);
 	-moz-backdrop-filter: blur(4px);
 	-ms-backdrop-filter: blur(4px);
@@ -65,14 +72,12 @@ html, body {
 	background:rgba(255,255,255,0.15);
 }
 #controls span {
-	padding:8px 48px;
+	padding:0 44px;
 	white-space: nowrap;
 	text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
 
-	-webkit-user-select: none; /* Safari */
-	-moz-user-select: none; /* Firefox */
-	-ms-user-select: none; /* Internet Explorer/Edge */
-	user-select: none; /* Non-prefixed version, supported by Chrome and Opera */
+	touch-action: none;
+	pointer-events: none;
 }
 
 .toolbar {
@@ -98,8 +103,9 @@ html, body {
 	background-color:rgba(0,0,0,0.5);
 	box-shadow:2px 2px 2px rgba(0,0,0,0.5);
 }
-#toolbar_main > li:hover {
+#toolbar_main > li:hover, #btn_menu:hover {
 	filter: brightness(150%);
+	cursor:pointer;
 }
 .toolbar > li > * {
 	margin: auto;
@@ -212,8 +218,8 @@ window.onerror=function(msg, url, linenumber) {
 			><canvas id="background" style="z-index:0;"></canvas
 			><canvas id="foreground" style="z-index:1;"></canvas
 
-			><div id="controls"
-				><button id="btn_menu" data-id="toggleMenu"
+			><div id="controls" class="noselect"
+				><button id="btn_menu" data-id="toggleMenu" title="main menu"
 					><svg height="20" width="20" style="fill:white;stroke:none;"
 						><rect y="1" width="20" height="3"></rect><rect y="8" width="20" height="3"></rect><rect y="15" width="20" height="3"></rect></svg
 				></button
@@ -229,7 +235,7 @@ window.onerror=function(msg, url, linenumber) {
 				></div
 			></div
 
-			><div id="menus" style="display:none;"
+			><div id="menus" style="display:none;" class="noselect"
 				><h1 id="title">pelagium</h1
 				><ul id="main_menu"
 					><li data-id="suspend" class="l10n">suspend game</li
@@ -243,7 +249,7 @@ window.onerror=function(msg, url, linenumber) {
 
 			><div id="popup" style="display:none;"><div
 				><div></div
-				><ul></ul
+				><ul class="noselect"></ul
 			></div></div
 		></div>
 	</body>

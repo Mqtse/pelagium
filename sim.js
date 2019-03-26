@@ -96,6 +96,8 @@ function Sim(params, callback) {
 			evt[key] = params[key];
 		if(type=='join') {
 			let party = this.parties[partyId];
+			if(!party)
+				return console.error('invalid party id', partyId);
 			party.events = null; // events before join do not matter
 			if(params && params.name)
 				party.name = params.name;
@@ -293,7 +295,7 @@ function Sim(params, callback) {
 			}
 			case 'capitulate':
 				events = [order];
-				this.parties[order.party].objectives = 0;
+				this.outcome = { capitulated:order.party };
 				i=orders.length;
 				break;
 			case 'production': {
@@ -530,11 +532,12 @@ function Sim(params, callback) {
 		if(this.state == 'over')
 			return true;
 
+		const capitulated = (this.outcome && this.outcome.capitulated) ? this.outcome.capitulated : false;
 		let loosers = [];
 		let winners = [];
 		for(let key in this.parties) {
 			let party = this.parties[key];
-			if(!party.objectives)
+			if(!party.objectives || key==capitulated)
 				loosers.push(key);
 			else
 				winners.push(key);
@@ -563,8 +566,8 @@ function Sim(params, callback) {
 			stats[key] = { objectives:party.objectives, units:party.units, unitsBuilt:party.unitsBuilt,
 				victories:party.victories, defeats:party.defeats, odds:odds }
 		}
-		this.outcome = { winners:winners, loosers:loosers, stats:stats };
-		events.push({ type:'gameOver', winners:winners, loosers:loosers, stats:stats });
+		this.outcome = { winners:winners, loosers:loosers, capitulated:capitulated, stats:stats };
+		events.push({ type:'gameOver', winners:winners, loosers:loosers, capitulated:capitulated, stats:stats });
 		this.state = 'over';
 		return true;
 	}
@@ -691,6 +694,12 @@ function Sim(params, callback) {
 					scenario[key] = value;
 			}
 		}
+
+		if(typeof params.parties == 'object') // remove disabled parties/starts
+			for(let key in params.parties)
+				if(params.parties[key]== -1)
+					delete scenario.starts[key];
+
 		this.map = new MapHex(scenario);
 	
 		this._initStats(scenario);

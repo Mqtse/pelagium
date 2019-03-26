@@ -113,7 +113,28 @@ function ServerPelagium(topLevelPath, persistence) {
 		if(numPlayers >= numPlayersMax)
 			return [ 403, 'Additional players forbidden'];
 
-		let user = { party: match.users.size + 1 };
+		let party;
+		if('party' in params) {
+			let partyAvailable = true;
+			match.users.forEach((user)=>{
+				if(user.party == params.party)
+					partyAvailable = false;
+			});
+			if(!partyAvailable)
+				return [ 403, 'Party not available'];
+			party = params.party;
+		}
+		else {
+			let partyAvailable = array(numPlayersMax+1).fill(true);
+			match.users.forEach((user)=>{
+				partyAvailable[user.party] = false;
+			});
+			for(let i=1; i<partyAvailable.length && party===undefined; ++i)
+				if(partyAvailable[i])
+					party = i;
+		}
+
+		let user = { party: party };
 		user.id = this.makeid(6, match.id.substr(0,1)); 
 		for(let key in { 'name':true, 'email':true, 'mode':true })
 			if(key in params)

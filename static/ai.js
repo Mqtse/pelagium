@@ -566,8 +566,9 @@ let AI = function(sim, credentials) {
 
 	setTimeout(()=>{ this.init(); }, 0);
 }
-AI.create = function(cmd, id, callback, allEvents) {
-	let params = { mode:'AI', cmd:cmd, id:id, name:'AI' };
+AI.create = function(params, callback, allEvents) {
+	params.name = 'AI_'+params.party;
+	params.mode = 'AI';
 	let sim = new SimProxy(params, (credentials, sim)=>{
 		let ai = AI.instance = new AI(sim, credentials);
 		callback('credentials', credentials);
@@ -580,7 +581,7 @@ if(typeof importScripts === 'function') { // webworker
 	onmessage = function(e) {
 		let params = e.data;
 		if(params.cmd=='join' || params.cmd=='resume') {
-			AI.create(params.cmd, params.id, (evt, data)=>{
+			AI.create(params, (evt, data)=>{
 				postMessage({ type:evt, data:data });
 			});
 		}

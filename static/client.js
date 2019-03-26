@@ -1,10 +1,7 @@
 function ProductionController(selector, unitColor, callback) {
 	var element=document.querySelector(selector);
 
-	this.setProduction = function(id, progress) {
-		progress = progress ? progress/MD.Unit[id].cost : 0.0;
-		if(progress > 1.0)
-			progress = 1.0;
+	this.setProduction = function(id, progress=0.0) {
 		for(var i=0, end=element.children.length; i<end; ++i) {
 			var child = element.children[i];
 			var toolId = child.dataset.id;
@@ -18,15 +15,16 @@ function ProductionController(selector, unitColor, callback) {
 			if(!isSelected)
 				dc.circle(cx,cy, canvas.width*0.5, {fillStyle:'rgba(0,0,0,0.5)'});
 			else {
+				const fraction = Math.min(progress / MD.Unit[id].cost, 1.0);
 				dc.circle(cx,cy, canvas.width*0.4, {fillStyle:'rgba(0,0,0,0.5)'});
 
 				dc.lineWidth = canvas.width*0.1;
 				dc.beginPath();
 				dc.strokeStyle='white';
-				dc.arc(cx,cy, canvas.width*0.45, 1.5*Math.PI, 1.5*Math.PI+2*Math.PI*progress, false);
+				dc.arc(cx,cy, canvas.width*0.45, 1.5*Math.PI, 1.5*Math.PI+2*Math.PI*fraction, false);
 				dc.stroke();
 				dc.strokeStyle='rgba(255,255,255,0.33)';
-				dc.arc(cx,cy, canvas.width*0.45, 1.5*Math.PI+2*Math.PI*progress, 1.5*Math.PI+2*Math.PI, false);
+				dc.arc(cx,cy, canvas.width*0.45, 1.5*Math.PI+2*Math.PI*fraction, 1.5*Math.PI+2*Math.PI, false);
 				dc.closePath();
 				dc.stroke();
 				this.production = id;
@@ -41,6 +39,10 @@ function ProductionController(selector, unitColor, callback) {
 			dc.fillRect(0,0, sz,sz);
 			dc.strokeUnit(toolId, sz,sz, sz/6, 'white');
 			dc.restore();
+
+			const Unit = MD.Unit[toolId];
+			const turns = (isSelected && progress) ? (Unit.cost-progress) : Unit.cost;
+			child.title = Unit.name + ', ' + turns + (turns==1 ? ' turn' : ' turns');
 		}
 		return this;
 	}
@@ -57,12 +59,13 @@ function ProductionController(selector, unitColor, callback) {
 		return this;
 	}
 
-	for(var id in MD.Unit) {
-		var unitType = MD.Unit[id];
-		var item = document.createElement('li');
+	for(let id in MD.Unit) {
+		const Unit = MD.Unit[id];
+		let item = document.createElement('li');
 		item.dataset.id = id;
+		item.title = Unit.name+', '+Unit.cost+' turns';
 
-		var canvas = document.createElement('canvas');
+		let canvas = document.createElement('canvas');
 		canvas.width = canvas.height = 48;
 		item.appendChild(canvas);
 		item.onclick = function(evt) {
@@ -126,7 +129,7 @@ client = {
 		for(let id in this.parties) {
 			let party = this.parties[id];
 			if(party.mode==='AI')
-				this.spawnAI(party.id);
+				this.spawnAI(party.id, party.party);
 		}
 
 		this.btnMain = new ButtonController('#toolbar_main', (evt)=>{ this.handleUIEvent(evt); });
@@ -351,6 +354,7 @@ client = {
 	handleUIEvent: function(event) {
 		switch(event.type) {
 		case 'fwd':
+			this.btnMain.setFocus(false);
 			return this.dispatchOrders();
 		case 'spinner':
 			return this.sim.postOrders(this.party, [{type:'forceEvaluate'}], this.turn); // only devMode
@@ -382,14 +386,15 @@ client = {
 	handleProductionInput: function(unitType, x, y) {
 		if(this.state!='input')
 			return;
-		var tile = this.mapView.get(x, y);
+		let tile = this.mapView.get(x, y);
 		if(!tile || tile.terrain!=MD.OBJ || tile.party != this.party || tile.production==unitType || !(unitType in MD.Unit))
 			return;
 
 		this.addOrder({ type:'production', unit:unitType, x:x, y:y });
 		tile.production = unitType;
 		tile.progress = 0;
-		this.toolbarProduction.setProduction(unitType, 0.0);
+		this.toolbarProduction.setProduction(unitType);
+		this.displayStatus(MD.Unit[unitType].name+', '+MD.Unit[unitType].cost+' turns');
 	},
 
 	handleMapInput: function(type, cellX, cellY) {
@@ -418,13 +423,29 @@ client = {
 			this.selectUnit(tile.unit);
 
 		var msg = '('+cellX+','+cellY+') ';
-		if(tile.party)
+		if(!tile.unit) {
+			if(tile.party)
 			msg += MD.Party[tile.party].name+' ';
-		msg += MD.Terrain[tile.terrain].name;
-		if(tile.unit) {
-			msg += ', ' + tile.unit.party.name + ' ' + tile.unit.type.name;
+			const Terrain =MD.Terrain[tile.terrain];
+			msg += Terrain.name;
+
+			if(Terrain.defend!=1)
+				msg += ', defense '+ Terrain.defend;
+			if(Terrain.move!=1)
+			 	msg += ', movement cost '+Terrain.move;
+			if(Terrain.concealment)
+				msg += ', concealment';
+		}
+		else {
+			const Unit = tile.unit.type;
+			msg += tile.unit.party.name + ' ' + Unit.name;
 			if(tile.unit.origin)
 				msg += ', moved';
+			else
+				msg += ', moves '+Unit.move;
+			msg+= ', attack '+Unit.attack+', defense '+Unit.defend;
+			if(Unit.support)
+				msg += ', support '+Unit.support + ', range '+Unit.range;
 		}
 
 		this.displayStatus(msg);
@@ -549,6 +570,15 @@ client = {
 		return false;
 	},
 
+	allOwnUnitsHaveOrders: function() {
+		for(var id in this.units) {
+			var unit = this.units[id];
+			if(unit.party.id == this.party && !unit.origin)
+				return false;
+		}
+		return true;
+	},
+
 	addOrder: function(order) {
 		this.orders.push(order);
 		this.cache.setItem('/orders', { turn:this.turn, orders:this.orders });
@@ -612,6 +642,8 @@ client = {
 		// animate until unit is drawn at its new destination:
 		unit.animation = new AnimationMove(this.time, unit, path, (unit, order)=>{
 			this.displayUnitDestination(unit, order);
+			if(this.allOwnUnitsHaveOrders())
+				this.btnMain.setFocus(true);
 		}, order);
 	},
 	displayUnitDestination: function(unit, order) {
@@ -811,8 +843,11 @@ client = {
 		else {
 			let params;
 			if(data.state=='over' && this.state!='over') {
-				this.modalPopup('GAME OVER.', ["OK"]);
-				params = { winners:data.winners, loosers:data.loosers, stats:data.stats };
+				params = { winners:data.winners, loosers:data.loosers, capitulated:capitulated, stats:data.stats };
+				this.modalPopup('GAME OVER.', ["VIEW MAP", "EXIT"], (result)=>{
+					if(result==1)
+						this.close(false, this.outcome);
+				});
 			}
 			this.switchState(data.state, params);
 		}
@@ -916,7 +951,10 @@ client = {
 			for(let i=0; i<evt.winners.length; ++i)
 				msg += ' '+MD.Party[evt.winners[i]].name;
 
-			this.modalPopup(msg, ["OK"]);
+			this.modalPopup(msg, ["VIEW MAP", "EXIT"], (result)=>{
+				if(result==1)
+					this.close(false, this.outcome);
+			});
 			return false;
 		}
 		case 'turn': {
@@ -1026,7 +1064,7 @@ client = {
 			if(localStorage)
 				delete localStorage.pelagium;
 			this.outcome = { screen:'over', party:this.credentials.party,
-				winners:params.winners, loosers:params.loosers, stats:params.stats };
+				winners:params.winners, loosers:params.loosers, capitulated:params.capitulated, stats:params.stats };
 
 			this.btnMain.setMode('exit');
 			this.hideJoinCredentials();
@@ -1042,7 +1080,7 @@ client = {
 		this.state = state;
 	},
 
-	spawnAI: function(id) {
+	spawnAI: function(id, party) {
 		let ai = new Worker('/static/ai.js');
 		this.workers.push(ai);
 		ai.onmessage = (msg)=>{
@@ -1055,7 +1093,7 @@ client = {
 				this.displayStatus('AI ERROR: '+data);
 			}
 		}
-		ai.postMessage({ cmd:id?'resume':'join', id:id?id:this.credentials.match });
+		ai.postMessage({ cmd:id?'resume':'join', id:id?id:this.credentials.match, party:party });
 		this.toggleMenu(false);
 	},
 
@@ -1119,4 +1157,8 @@ window.addEventListener("load", ()=>{
 		client.modalPopup(msg, ['OK'], function(id) { client.close(); });
 	});
 	sim.on('warn', (evt, msg)=>{ client.displayStatus(msg); });
+
+	if('ontouchstart' in window) // suppress zoom, scrolling
+		for (let i = 0, all=document.querySelectorAll('.noselect'); i < all.length; ++i)
+			all[i].addEventListener("touchmove", (evt)=>{ evt.preventDefault() });
 });

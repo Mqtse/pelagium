@@ -18,28 +18,57 @@
 		<link href='/static/fonts.css' rel='stylesheet' type='text/css'>
 
 		<style type="text/css">
+body {
+	--text-color-default: rgba(0,0,0,0.5);
+	--text-color-select: rgba(255,255,255,0.8);
+	--text-color-heading: white;
+}
+
 html, body {
 	overflow:hidden;
 	height:100%;
 	margin: 0 auto;
 	font-family: 'Montserrat', sans-serif;
-	font-size: calc(0.9*(5vw + 3vh));
+	font-size: calc(7vh);
 	-webkit-text-size-adjust: 100%;
 	text-transform: uppercase;
-	color:white;
-	background: url(/static/pelagium.svg) left / contain no-repeat, url(/static/scillies.jpg) 50% / cover rgb(130,160,200);
+	color:var(--text-color-default);
+	background: url(/static/pelagium.svg) left / contain no-repeat, url(/static/scillies.jpg) 50% / cover rgb(201,219,207);
 	touch-action: none;
 }
 
 :focus { outline: none; }
 
 #screens {
-	margin-left:15vh;
 	height:100%;
 	display:flex;
 	align-items: center;
 	z-index:3;
 }
+
+@media (orientation: landscape) {
+	#screens {
+		margin: 0 10vw;
+	}
+	ul#scenarios, .stats, #screen_help > div {
+		width:80vw;
+	}
+	#screen_config > canvas {
+		position:fixed;
+		left: 50vw;
+		top: calc(50vh - 120px);
+	}
+}
+
+@media (orientation: portrait) {
+	#screens {
+		margin:0 5vw;
+	}
+	ul#scenarios, .stats, #screen_help > div {
+		width:90vw;
+	}
+}
+
 #screens ul {
 	margin:0;
 	padding:0;
@@ -50,7 +79,6 @@ html, body {
 #screens li {
 	margin:0.1em 0;
 	border:0;
-	color:rgba(0,0,0,0.5);
 	list-style: none;
 	font-weight: bold;
 
@@ -62,12 +90,14 @@ html, body {
 
 #screens li:hover {
 	cursor: pointer;
-	color:rgba(255,255,255,0.8);
+	color:var(--text-color-select);
 }
 
 h2 {
 	margin:0 0 0.1em 0;
-	font-size: 125%;
+	font-size: 100%;
+	color: var(--text-color-heading);
+	text-shadow:0 0 0.25em rgb(201,219,207);
 
 	user-select: none;
 	-ms-user-select: none;
@@ -80,9 +110,9 @@ input {
 	border: none;
 	border-bottom:0.2em solid rgba(255,255,255,0.5);
 	font-family: 'Montserrat', sans-serif;
-	font-size: calc(0.9*(5vw + 3vh));
+	font-size: 100%;
 	font-weight: bold;
-	color:rgba(0,0,0,0.5);
+	color:var(--text-color-default);
 }
 
 #logo {
@@ -97,8 +127,19 @@ input {
 	cursor: pointer;
 }
 
+#screen_help > div {
+	text-shadow:0 0 0.25em rgb(201,219,207);
+	font-size: 66%;
+	font-weight: bold;
+	margin-bottom:1em;
+}
+.help_icon {
+	width:40px;
+	height:40px;
+	margin-top:-10px;
+}
+
 ul#scenarios {
-	width:75vw;
 	overflow-x: scroll;
 	font-size: 20px;
 }
@@ -133,8 +174,7 @@ ul#scenarios {
 }
 #custom_scenario svg:hover { opacity:1.0; }
 
-#stats {
-	width:75vw;
+.stats {
 	overflow-x:scroll;
 	white-space: nowrap;
 	font-size: 50%;
@@ -160,11 +200,11 @@ ul#scenarios {
 }
 .stats_caption {
 	position:absolute;
-	top:0;
+	padding-top:0.15em;
 	width:100%;
 	height:100%;
+	font-size: 70%;
 	z-index: 0;
-	color: rgba(0,0,0,0.5);
 }
 .stats_bar {
 	position:absolute;
@@ -178,10 +218,31 @@ ul#scenarios {
 	text-align: left;
 }
 
-.party_player li {
-	display:inline;
+/*--- screen_config ---*/
+
+ul#parties > li {
+	margin-bottom:0.5em;
+}
+ul#parties > li:hover {
+	color:var(--text-color-default);
+	cursor: default;
+}
+
+li.party > div {
+	font-size: 75%;
+}
+ul.party_player {
 	font-size:50%;
-	padding-right:1em;
+	background-color: rgba(201,219,207, 0.5);
+}
+.party_player > li, .btn_row > li {
+	display:inline;
+	padding-right:0.5em;
+	z-index:3;
+}
+
+.selected {
+	color:var(--text-color-heading);
 }
 		</style>
 
@@ -262,13 +323,14 @@ app = {
 				return console.error('loading scenario data failed', code, data);
 			this.addScenarios(data);
 		}, this);
-		eludi.click2touch();
 
 		if(params.screen) {
 			this.screen(params.screen);
 			if(typeof this[params.screen] == 'function')
 				this[params.screen](params);
 		}
+		this.fillTerrainTable();
+		this.fillUnitTable();
 	},
 	drawMap: function(canvas, data) {
 		var dc = canvas.getContext('2d');
@@ -321,16 +383,31 @@ app = {
 	start: function(scenario) {
 		if(!navigator.onLine && location.hostname != 'localhost')
 			return alert('server connection required for starting a new game');
-		var params = {cmd:'start'};
-		if(!scenario)
-			scenario = document.getElementById("scenario_id").value;
-		if(scenario)
+		let params = {cmd:'start'};
+		if(!scenario) {
+			let config = this.readConfig();
+			if(config) {
+				scenario = config.scenario;
+				params.parties = config.parties;
+			}
+		}
+		if(scenario) {
 			params.scenario = scenario;
-		this.openUrl('/static/pelagium.html', params);
+			this.openUrl('/static/pelagium.html', params);
+		}
 	},
 	configure: function(scenId) {
+		const switchClassId = (elem, classId='selected')=>{
+			let parent = elem.parentElement;
+			for(let el = parent.firstElementChild; el!=null; el=el.nextElementSibling)
+				if(el == elem)
+					el.classList.add(classId);
+				else
+					el.classList.remove(classId);
+			parent.dataset.value = elem.dataset.value;
+		};
 		let screen = document.getElementById("screen_config");
-		screen.querySelector('h2').innerHTML = scenId;
+		screen.querySelector('h2').innerHTML = screen.dataset.id = scenId;
 
 		let canvas = screen.querySelector('canvas');
 		let dc = canvas.getContext('2d');
@@ -341,15 +418,48 @@ app = {
 		let parent = screen.querySelector('#parties');
 		while(parent.childElementCount>1)
 			parent.removeChild(parent.lastChild);
+		let startsCounter = 0;
 		for(let id in scenario.starts) {
 			let li = parent.firstChild.cloneNode(true);
 			li.style.display='';
 			li.dataset.id = id;
 			li.querySelector('div').innerHTML = MD.Party[id].name;
+			let radioPartyType = li.querySelector('.party_player');
+			radioPartyType.addEventListener('click', (evt)=>{ switchClassId(evt.target); });
+			if(startsCounter < 2)
+				switchClassId(radioPartyType.children[startsCounter]);
+			else
+				switchClassId(radioPartyType.children[3]);
 			parent.appendChild(li);
+			++startsCounter;
 		}
 		this.screen('config');
-		//this.start(scenId);
+	},
+	readConfig: function() {
+		let scenId = document.getElementById("screen_config").dataset.id;
+		let parties = {};
+		let parent = document.querySelector('#parties');
+
+		let selfFound = 0, opponentsFound = 0;
+		for(let el = parent.firstElementChild; el!=null; el=el.nextElementSibling) {
+			if(typeof el.dataset.id == 'undefined')
+				continue;
+			let radioPartyType = el.querySelector('.party_player');
+			parties[el.dataset.id] = parseInt(radioPartyType.dataset.value, 10);
+			switch(parties[el.dataset.id]) {
+			case 0:
+				++selfFound; break;
+			case 1:
+			case 2:
+				++opponentsFound;
+			}
+		}
+		if(selfFound!=1)
+			return alert('choose one color for you');
+		if(!opponentsFound)
+			return alert('choose at least one A.I. or human foe');
+
+		return { scenario:scenId, parties:parties };
 	},
 	resume: function() {
 		var id = document.getElementById("resume_id").value.toUpperCase();
@@ -387,7 +497,8 @@ app = {
 
 		for(let id in params.stats) {
 			let party = params.stats[id];
-			party.score = party.objectives*100 + party.units*10 + party.victories * 20;
+			let objValue = (params.capitulated==id) ? 0 : 100;
+			party.score = party.objectives*objValue + party.units*10 + party.victories * 20;
 		}
 
 		let maxObjectives = maxValue(params.stats, 'objectives');
@@ -396,15 +507,61 @@ app = {
 		let maxScore =  maxValue(params.stats, 'score');
 		let opacity = 0.5;
 
+		let col = 1;
 		for(let id in params.stats) {
 			let party = params.stats[id];
-			table.colName(id, MD.Party[id].name);
-			table.set(1, id, party.objectives).progress(1, id, party.objectives/maxObjectives, MD.Party[id].color, opacity);
-			table.set(2, id, party.units).progress(2, id, party.units/maxUnits, MD.Party[id].color, opacity);
-			table.set(3, id, party.unitsBuilt).progress(3, id, party.unitsBuilt/maxUnitsBuilt, MD.Party[id].color, opacity);
-			table.set(4, id, party.victories || 0).progress(4, id, party.victories/(party.victories+party.defeats), MD.Party[id].color, opacity);
-			table.set(5, id, party.odds.toFixed(2)).progress(5, id, party.odds, MD.Party[id].color, opacity);
-			table.set(6, id, party.score).progress(6, id, party.score/maxScore, MD.Party[id].color, opacity);
+			table.colName(col, MD.Party[id].name);
+			table.set(1, col, party.objectives).progress(1, id, party.objectives/maxObjectives, MD.Party[id].color, opacity);
+			table.set(2, col, party.units).progress(2, id, party.units/maxUnits, MD.Party[id].color, opacity);
+			table.set(3, col, party.unitsBuilt).progress(3, id, party.unitsBuilt/maxUnitsBuilt, MD.Party[id].color, opacity);
+			table.set(4, col, party.victories || 0).progress(4, id, party.victories/(party.victories+party.defeats), MD.Party[id].color, opacity);
+			table.set(5, col, party.odds.toFixed(2)).progress(5, id, party.odds, MD.Party[id].color, opacity);
+			table.set(6, col, party.score).progress(6, id, party.score/maxScore, MD.Party[id].color, opacity);
+			++col;
+		}
+	},
+	fillTerrainTable: function() {
+		let table = new StatsTable(document.querySelector("#terrain"));
+		table.rowName(1,'symbol').rowName(2, "defense").rowName(3, "movement").rowName(4, "concealm.");
+
+		for(let i=0, col=1; i<MD.Terrain.length; ++i, ++col) {
+			const terrain = MD.Terrain[i];
+
+			table.set(1, col, '<canvas id="icon_terrain_'+terrain.id+'" class="help_icon"></canvas>');
+			let canvas = document.querySelector('#icon_terrain_'+terrain.id);
+			canvas.width = canvas.height = 40;
+			let dc = extendCanvasContext(canvas.getContext('2d'));
+			dc.hex(canvas.width/2, canvas.height/2, canvas.height/2, {fillStyle:terrain.color});
+			canvas.parentNode.style.background = 'none';
+
+			table.colName(col, terrain.name);
+			table.set(2, col, terrain.defend).set(3, col, terrain.move).set(4, col, terrain.concealment);
+		}
+	},
+	fillUnitTable: function() {
+		let table = new StatsTable(document.querySelector("#units"));
+		table.rowName(1,'symbol').rowName(2, "moves").rowName(3, "attack")
+			.rowName(4, "defense").rowName(5, "support").rowName(6, "range")
+			.rowName(7, "visual r.").rowName(8, "retreat").rowName(9, "cost");
+
+		let col = 1;
+		for(let id in MD.Unit) {
+			const unit = MD.Unit[id];
+
+			table.set(1, col, '<canvas id="icon_'+unit.id+'" class="help_icon"></canvas>');
+			let canvas = document.querySelector('#icon_'+unit.id);
+			canvas.width = canvas.height = 40;
+			let dc = extendCanvasContext(canvas.getContext('2d'));
+			dc.fillStyle = MD.Party[1].color;
+			dc.fillRect(0,0, canvas.width, canvas.height);
+			dc.strokeUnit(id, canvas.width, canvas.height, 7, 'white');
+			canvas.parentNode.style.background = 'none';
+
+			table.colName(col, unit.name);
+			table.set(2, col, unit.move).set(3, col, unit.attack).set(4, col, unit.defend);
+			table.set(5, col, unit.support).set(6, col, unit.range).set(7, col, unit.visualRange);
+			table.set(8, col, (unit.retreat*10)+'%').set(9, col, unit.cost);
+			++col;
 		}
 	},
 	close: function() {
@@ -418,14 +575,26 @@ document.addEventListener("DOMContentLoaded", ()=>{
 		</script>
 	</head>
 
-	<body>
-		<div id="screens"
+	<body
+		><img id="logo" src="/static/eludi.logo.svg" onclick="document.location.href='https://eludi.net';" alt="eludi.net"
+		><div id="screens"
 			><ul id="screen_main"
-				><li class="l10n" onclick="app.screen('resume');">resume game</li
-				><li class="l10n" onclick="setTimeout(function() { app.screen('scenario'); }, 500);">start game</li
+				><li class="l10n" onclick="app.screen('scenario');">start game</li
+				><li class="l10n" onclick="app.screen('resume');">resume</li
 				><li class="l10n" onclick="app.screen('join');">join game</li
-				><li class="l10n" onclick="app.close()">exit</li
+				><li class="l10n" onclick="app.screen('help')">about&hellip;</li
 			></ul
+
+			><div id="screen_help" style="display:none;"
+				><h2 class="l10n">about&hellip;</h2
+				><div class="l10n">Pelagium is a fast-paced strategy game.
+					Secure all objectives against your opponents!</div
+				><ul
+					><li class="l10n" onclick="app.screen('help_units');">units</li
+					><li class="l10n" onclick="app.screen('help_terrain');">terrain</li
+					><li class="l10n" onclick="app.screen('main')">back</li
+				></ul
+			></div
 
 			><div id="screen_resume" style="display:none;"
 				><h2 class="l10n">resume game</h2
@@ -433,7 +602,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 					onkeypress="app.onEnter(event, function() { app.resume(); });"
 				/><ul
 					><li onclick="app.resume();"><span class ="l10n">resume</span></li
-					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
+					><li onclick="app.screen('main');"><span class ="l10n">back</span></li
 				></ul
 			></div
 
@@ -443,7 +612,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 					onkeypress="app.onEnter(event, function() { app.join(); });"
 				/><ul
 					><li onclick="app.join();"><span class ="l10n">join</span></li
-					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
+					><li onclick="app.screen('main');"><span class ="l10n">back</span></li
 				></ul
 			></div
 
@@ -451,8 +620,9 @@ document.addEventListener("DOMContentLoaded", ()=>{
 				><h2 class="l10n">start game</h2
 				><div id="custom_scenario"
 					><input type="text" id="scenario_id" placeholder="custom scenario" size="12" maxlength="20"
-						onkeypress="app.onEnter(event, function() { app.start(); });"
-					/><svg onclick="app.start();" viewbox="0 0 10 10"><path style="fill:white;stroke:none;" d="M 1 1 l0 8 l8 -4 z"></path></svg
+						onkeypress="app.onEnter(event, ()=>{ app.start(event.target.value); });"
+					/><svg onclick="app.start(document.getElementById('scenario_id').value);"
+						viewbox="0 0 10 10"><path style="fill:white;stroke:none;" d="M 1 1 l0 8 l8 -4 z"></path></svg
 				></div
 				><ul id="scenarios"
 					><li class="scenario_preview" style="display:none;"
@@ -462,7 +632,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 					></li
 				></ul
 				><ul
-					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
+					><li onclick="app.screen('main');"><span class ="l10n">back</span></li
 				></ul
 			></div
 
@@ -473,28 +643,43 @@ document.addEventListener("DOMContentLoaded", ()=>{
 					><li class="party" style="display:none;"
 						><div>party name</div
 						><ul class="party_player"
-							><li>you</li
-							><li>A.I.</li
-							><li>human</li
-							><li>no one</li
+							><li data-value="0">you</li
+							><li data-value="1">A.I.</li
+							><li data-value="2">human</li
+							><li data-value="-1">no one</li
 						></ul
 					></li
 				></ul
-				><ul
-					><li onclick="app.start(document.querySelector('#screen_config > h2').innerText);"><span class ="l10n">start</span></li
-					><li onclick="app.screen('main');"><span class ="l10n">cancel</span></li
+				><ul class="btn_row"
+					><li onclick="app.start();"><span class ="l10n">start</span></li
+					><li onclick="app.screen('main');"><span class ="l10n">back</span></li
 				></ul
 			></div
 
 			><div id="screen_over" style="display:none;"
 				><h2 id="h_game_over" class="l10n">game over.</h2
 				><h2 id="h_victory" class="l10n" style="display:none;">victory!</h2
-				><div id="stats"></div
+				><div id="stats" class="stats"></div
 				><ul
 					><li onclick="app.screen('main');"><span class ="l10n">continue</span></li
 				></ul
 			></div
+
+			><div id="screen_help_units" style="display:none;"
+				><h2 class="l10n">units</h2
+				><div id="units" class="stats"></div
+				><ul
+					><li onclick="app.screen('help');"><span class ="l10n">back</span></li
+				></ul
+			></div
+
+			><div id="screen_help_terrain" style="display:none;"
+				><h2 class="l10n">terrain</h2
+				><div id="terrain" class="stats"></div
+				><ul
+					><li onclick="app.screen('help');"><span class ="l10n">back</span></li
+				></ul
+			></div
 		></div
-		><img id="logo" src="/static/eludi.logo.svg" onclick="document.location.href='https://eludi.net';" alt="eludi.net"
 	/></body>
 </html>
