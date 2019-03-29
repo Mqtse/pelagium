@@ -125,7 +125,7 @@ function ServerPelagium(topLevelPath, persistence) {
 			party = params.party;
 		}
 		else {
-			let partyAvailable = array(numPlayersMax+1).fill(true);
+			let partyAvailable = Array(numPlayersMax+1).fill(true);
 			match.users.forEach((user)=>{
 				partyAvailable[user.party] = false;
 			});

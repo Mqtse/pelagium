@@ -264,7 +264,7 @@ MissionDefend.checkNeed = function(obj, map, party) {
 	return defenders.slice(0, Math.ceil(attackers.length*1.33)); // might be []
 }
 
-let AI = function(sim, credentials) {
+let AI = function(sim, credentials, autoPilot=false) {
 	this.handleTerrain = function(data) {
 		console.log('terrain received');
 
@@ -362,7 +362,8 @@ let AI = function(sim, credentials) {
 		this.cleanupMissions();
 		this.assignMissions();
 		this.generateOrders();
-		this.dispatchOrders();
+		if(!this.dispatchOrdersBlocked)
+			this.dispatchOrders();
 	}
 	this.cleanupMissions = function() {
 		for(let id in this.missions) {
@@ -522,6 +523,15 @@ let AI = function(sim, credentials) {
 	this.dispatchOrders = function() {
 		this.sim.postOrders(this.credentials.party, this.orders, this.turn);
 		this.orders = [];
+		if(this.autoPilot)
+			this.dispatchOrdersBlocked = true;
+	}
+
+	this.unblockDispatchOrders = function() {
+		if(this.orders.length)
+			this.dispatchOrders();
+		else
+			this.dispatchOrdersBlocked = false;
 	}
 
 	this.init = function() {
@@ -561,6 +571,8 @@ let AI = function(sim, credentials) {
 	this.orders = []; // immediate for this turn
 	this.turn = -1;
 	this.credentials = credentials;
+	this.autoPilot = autoPilot;
+	this.dispatchOrdersBlocked = false;
 	this.attitude = Attitude.expansive;
 	this.eventListeners = {};
 
@@ -570,9 +582,11 @@ AI.create = function(params, callback, allEvents) {
 	params.name = 'AI_'+params.party;
 	params.mode = 'AI';
 	let sim = new SimProxy(params, (credentials, sim)=>{
-		let ai = AI.instance = new AI(sim, credentials);
+		let ai = AI.instance = new AI(sim, credentials, params.autoPilot);
 		callback('credentials', credentials);
 		ai.on(allEvents ? '*' : 'error', callback);
+		if(ai.autoPilot && !allEvents)
+			ai.on('simEvents', callback);
 	});
 	sim.on('error', callback);
 }
@@ -584,6 +598,11 @@ if(typeof importScripts === 'function') { // webworker
 			AI.create(params, (evt, data)=>{
 				postMessage({ type:evt, data:data });
 			});
+		}
+		else if(params.cmd == 'postOrders') {
+			let ai = AI.instance;
+			if (ai && ai.autoPilot)
+				ai.unblockDispatchOrders();
 		}
 	}
 }

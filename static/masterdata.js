@@ -44,8 +44,11 @@ var MD = {
 		{ id:0, color: "rgb(127,127,127)", name: 'Neutral' },
 		{ id:1, color: "rgb(0,0,255)", name: 'Blue' },
 		{ id:2, color: "rgb(255,0,0)", name: 'Red' },
-		{ id:3, color: "rgb(0,191,0)", name: 'Green' },
-		{ id:4, color: "rgb(255,191,0)", name: 'Yellow' }
+		{ id:3, color: "rgb(0,170,0)", name: 'Green' },
+		{ id:4, color: "rgb(255,170,0)", name: 'Yellow' },
+		{ id:5, color: "rgb(170,0,170)", name: 'Magenta' },
+		{ id:6, color: "rgb(0,170,170)", name: 'Cyan' },
+		{ id:7, color: "rgb(170,85,0)", name: 'Brown' }
 	],
 	Unit: {
 		inf: {

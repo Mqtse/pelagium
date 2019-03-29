@@ -99,8 +99,12 @@ function Sim(params, callback) {
 			if(!party)
 				return console.error('invalid party id', partyId);
 			party.events = null; // events before join do not matter
-			if(params && params.name)
-				party.name = params.name;
+			if(params) {
+				if(params.name)
+					party.name = params.name;
+				if(params.mode)
+					party.mode = params.mode;
+			}
 		}
 		this._dispatchEvents([evt]);
 	}
@@ -535,22 +539,25 @@ function Sim(params, callback) {
 		const capitulated = (this.outcome && this.outcome.capitulated) ? this.outcome.capitulated : false;
 		let loosers = [];
 		let winners = [];
+		let humanLoosers = false;
+		let numObjectivesMax = 0;
+
 		for(let key in this.parties) {
 			let party = this.parties[key];
-			if(!party.objectives || key==capitulated)
+			if(!party.objectives || key==capitulated) {
 				loosers.push(key);
-			else
-				winners.push(key);
-		}
-		if(!loosers.length)
-			return false;
-		if(winners.length>1) { // compare number of objectives:
-			let numObjectivesMax = 0;
-			for(let i=0; i<winners.length; ++i) {
-				let party = this.parties[winners[i]];
-				if(party.objectives > numObjectivesMax)
-					numObjectivesMax = party.objectives;
+				if(party.mode != 'AI')
+					humanLoosers = true;
+				continue;
 			}
+			winners.push(key);
+			if(party.objectives > numObjectivesMax)
+				numObjectivesMax = party.objectives;
+		}
+		if(winners.length>1 && !humanLoosers && numObjectivesMax<this.numObjectivesVictory)
+			return false;
+
+		if(winners.length>1) { // compare number of objectives:
 			for(let i = winners.length; i-->0; ) {
 				let party = this.parties[winners[i]];
 				if(party.objectives == numObjectivesMax)
@@ -615,13 +622,16 @@ function Sim(params, callback) {
 			lastUpdateTime: this.lastUpdateTime,
 			simEventCounter: this.simEventCounter,
 			map: this.map.serialize(),
+			numObjectivesVictory: this.numObjectivesVictory,
+
 			parties: {},
 			state: this.state
 		};
 		for(var key in this.parties) {
 			var party = this.parties[key];
-			data.parties[key] = { objectives:party.objectives, units:party.units, unitsBuilt:party.unitsBuilt,
-				orders:party.orders, knownObjectives:(party.knownObjectives ? party.knownObjectives : {})};
+			data.parties[key] = { objectives:party.objectives, units:party.units,
+				unitsBuilt:party.unitsBuilt, orders:party.orders, name:party.name, mode:party.mode,
+				knownObjectives:(party.knownObjectives ? party.knownObjectives : {})};
 		}
 		if(this.outcome)
 			data.outcome = this.outcome;
@@ -647,6 +657,10 @@ function Sim(params, callback) {
 		}
 		if('outcome' in data)
 			this.outcome = data.outcome;
+		if('numObjectivesVictory' in data)
+			this.numObjectivesVictory = data.numObjectivesVictory;
+		else
+			this.numObjectivesVictory = Math.ceil(this.map.getObjectives().length * 0.66);
 		this.state = data.state;
 	}
 
@@ -657,7 +671,7 @@ function Sim(params, callback) {
 			++this.numParties;
 			parties[key] = { objectives:1, units:0, unitsBuilt:0,
 				victories:0, defeats:0, odds:0.0,
-				orders:null, name:MD.Party[key].name,
+				orders:null, name:MD.Party[key].name, mode:null,
 				fov:this.map.getFieldOfView(key), knownObjectives:{} };
 			for(var partyId in scenario.starts)
 				parties[key].knownObjectives[scenario.starts[partyId]] = parseInt(partyId);
@@ -673,6 +687,7 @@ function Sim(params, callback) {
 		var defaults = {
 			scenario:'baiazul',
 			pageSz:32,
+			fractionObjectivesVictory:0.66,
 			timePerTurn: 86400, // 1 day
 			devMode: 1
 		};
@@ -701,6 +716,8 @@ function Sim(params, callback) {
 					delete scenario.starts[key];
 
 		this.map = new MapHex(scenario);
+		this.numObjectivesVictory
+			= Math.ceil(this.map.getObjectives().length * this.fractionObjectivesVictory);
 	
 		this._initStats(scenario);
 		this.simEventCounter = 0;

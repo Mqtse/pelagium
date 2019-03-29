@@ -93,6 +93,15 @@ html, body {
 	color:var(--text-color-select);
 }
 
+a {
+	color:var(--text-color-select);
+	text-decoration: none;
+}
+a:hover {
+	cursor: pointer;
+	color:white;
+}
+
 h2 {
 	margin:0 0 0.1em 0;
 	font-size: 100%;
@@ -127,7 +136,7 @@ input {
 	cursor: pointer;
 }
 
-#screen_help > div {
+#screen_help > div, #screen_story > p {
 	text-shadow:0 0 0.25em rgb(201,219,207);
 	font-size: 66%;
 	font-weight: bold;
@@ -137,6 +146,11 @@ input {
 	width:40px;
 	height:40px;
 	margin-top:-10px;
+}
+
+#screen_story > p {
+	background-color: rgba(201,219,207, 0.5);
+	box-shadow: 0 0 10px 10px rgba(201,219,207, 0.5);
 }
 
 ul#scenarios {
@@ -181,6 +195,7 @@ ul#scenarios {
 	font-weight: bold;
 	text-align: center;
 	background-color: rgba(201,219,207, 0.5);
+	box-shadow: 0 0 8px 8px rgba(201,219,207, 0.5);
 }
 .stats_cell {
 	display: inline-block;
@@ -213,12 +228,17 @@ ul#scenarios {
 	z-index:1;
 	opacity: 0.5;
 }
-#stats > div > div:first-child {
-	width: 25vw;
-	text-align: left;
-}
 
 /*--- screen_config ---*/
+
+#screen_config, #screen_story {
+	max-height: 100vh;
+	overflow-y: auto;
+}
+
+.vspace {
+	height: 1em;
+}
 
 ul#parties > li {
 	margin-bottom:0.5em;
@@ -234,6 +254,7 @@ li.party > div {
 ul.party_player {
 	font-size:50%;
 	background-color: rgba(201,219,207, 0.5);
+	box-shadow: 0 0 8px 8px rgba(201,219,207, 0.5);
 }
 .party_player > li, .btn_row > li {
 	display:inline;
@@ -396,6 +417,17 @@ app = {
 			this.openUrl('/static/pelagium.html', params);
 		}
 	},
+	demo: function() {
+		const scenarios = Object.keys(this.scenarios);
+		const scenId = scenarios[Math.floor(Math.random()*scenarios.length)];
+		let scenario = this.scenarios[scenId];
+		let ownId = String(Math.floor(Object.keys(scenario.starts).length * Math.random()) + 1);
+		let parties = {};
+		for(let id in scenario.starts)
+			parties[id] = (id===ownId) ? 0 : 1; // AI
+		let params = { cmd:'demo', scenario:scenId, parties:parties };
+		this.openUrl('/static/pelagium.html', params);
+	},
 	configure: function(scenId) {
 		const switchClassId = (elem, classId='selected')=>{
 			let parent = elem.parentElement;
@@ -535,14 +567,15 @@ app = {
 			canvas.parentNode.style.background = 'none';
 
 			table.colName(col, terrain.name);
-			table.set(2, col, terrain.defend).set(3, col, terrain.move).set(4, col, terrain.concealment);
+			table.set(2, col, '&times;'+terrain.defend)
+				.set(3, col, terrain.id==MD.WATER ? '-' : terrain.move).set(4, col, terrain.concealment);
 		}
 	},
 	fillUnitTable: function() {
 		let table = new StatsTable(document.querySelector("#units"));
 		table.rowName(1,'symbol').rowName(2, "moves").rowName(3, "attack")
-			.rowName(4, "defense").rowName(5, "support").rowName(6, "range")
-			.rowName(7, "visual r.").rowName(8, "retreat").rowName(9, "cost");
+			.rowName(4, "defense").rowName(5, "support").rowName(6, "sup. range")
+			.rowName(7, "vis. range").rowName(8, "retreat").rowName(9, "cost");
 
 		let col = 1;
 		for(let id in MD.Unit) {
@@ -559,7 +592,7 @@ app = {
 
 			table.colName(col, unit.name);
 			table.set(2, col, unit.move).set(3, col, unit.attack).set(4, col, unit.defend);
-			table.set(5, col, unit.support).set(6, col, unit.range).set(7, col, unit.visualRange);
+			table.set(5, col, '+'+unit.support).set(6, col, unit.range).set(7, col, unit.visualRange);
 			table.set(8, col, (unit.retreat*10)+'%').set(9, col, unit.cost);
 			++col;
 		}
@@ -582,17 +615,51 @@ document.addEventListener("DOMContentLoaded", ()=>{
 				><li class="l10n" onclick="app.screen('scenario');">start game</li
 				><li class="l10n" onclick="app.screen('resume');">resume</li
 				><li class="l10n" onclick="app.screen('join');">join game</li
-				><li class="l10n" onclick="app.screen('help')">about&hellip;</li
+				><li class="l10n" onclick="app.demo();">demo</li
+				><li class="l10n" onclick="app.screen('help');">about&hellip;</li
 			></ul
 
 			><div id="screen_help" style="display:none;"
-				><h2 class="l10n">about&hellip;</h2
+				><h2 class="l10n">about</h2
 				><div class="l10n">Pelagium is a fast-paced strategy game.
-					Secure all objectives against your opponents!</div
+					Secure all objectives against your opponents!
+					<a href="javascript:app.screen('story');">More&hellip;</a></div
 				><ul
 					><li class="l10n" onclick="app.screen('help_units');">units</li
 					><li class="l10n" onclick="app.screen('help_terrain');">terrain</li
 					><li class="l10n" onclick="app.screen('main')">back</li
+				></ul
+			></div
+
+			><div id="screen_story" style="display:none;"
+				><h2 class="l10n">background</h2
+				><p>
+Once upon in time the formerly peaceful and scenic isles of Pelagium where shaken by
+unrest and conflict. As a member of one of the oldest families of the islands, it is
+your manifest duty to summon your followers and restore order and unity among the Pelagians.
+				</p
+				><p>
+Key for attaining this goal is to capture the objectives/settlements scattered across the main islands
+from the opposing parties - settlements give you access to the island's resources and allow
+you to train your followers. Followers can be trained as infantry, cavallery, or artillery
+units that have <a href="javascript:app.screen('help_units');">specific strengths and weaknesses</a>.
+				</p
+				><p>
+When moving over the island, your followers will sooner or later encounter units of opposing
+parties. In order to prevail in the resulting clashes, it is crucial to distribute your units
+in a way that they optimally support each other as well as using terrain and topography to
+your advantage. The bare figures are displayed in the <a href="javascript:app.screen('help_terrain');">
+terrain table</a>, and experience will teach you soon the subtleties&hellip;
+				</p
+				><p>
+The game ends when either a human player surrenders or looses all its objectives,
+or when one party controls at least two thirds of all objectives/settlements.
+				</p
+				><p>
+Good luck!
+				</p
+				><ul
+					><li onclick="app.screen('main');"><span class ="l10n">back</span></li
 				></ul
 			></div
 
@@ -654,6 +721,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 					><li onclick="app.start();"><span class ="l10n">start</span></li
 					><li onclick="app.screen('main');"><span class ="l10n">back</span></li
 				></ul
+				><div class="vspace"></div
 			></div
 
 			><div id="screen_over" style="display:none;"

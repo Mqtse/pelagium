@@ -230,6 +230,16 @@ function MapHex(params) {
 			view.data = MatrixHex.rleEncode(view.data);
 		return view;
 	}
+	this.getObjectives = function(page=0) {
+		if(page!=0)
+			return [];
+		var objectives = [];
+		for(var x=0; x!=this.pageSz; ++x)
+			for(var y=0; y!=this.pageSz; ++y)
+				if(this.page.get(x, y).terrain == MD.OBJ)
+					objectives.push({ id:objectives.length, x:x, y:y });
+		return objectives;
+	}
 
 	this.get = function(x,y) {
 		if(x<0 || y<0 || x>=this.pageSz || y>=this.pageSz)

@@ -15,6 +15,7 @@ module.exports = function(dir) {
 			data = JSON.parse(data);
 		} catch(err) {
 			console.error('DiskStorage getItem('+key+',...) failed:', err);
+			data = null;
 		}
 		return data;
 	}
@@ -24,7 +25,7 @@ module.exports = function(dir) {
 		fs.unlink(this.path + path.sep + key + this.suffix, callback);
 	}
 	this.keys = function() {
-		var data = null;
+		var data = [];
 		try {
 			data = fs.readdirSync(this.path);
 		} catch(err) {

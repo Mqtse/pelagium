@@ -105,6 +105,7 @@ client = {
 		delete credentials.parties;
 		this.credentials = credentials;
 		this.party = credentials.party;
+		this.isDemo = credentials.mode === 'demo';
 		this.numPartiesMax = 2;
 		this.mapView = null;
 		this.redrawMap = true;
@@ -131,6 +132,7 @@ client = {
 			if(party.mode==='AI')
 				this.spawnAI(party.id, party.party);
 		}
+		this.autoPilot = this.isDemo ? this.spawnAI(this.credentials.id, this.party, true) : null;
 
 		this.btnMain = new ButtonController('#toolbar_main', (evt)=>{ this.handleUIEvent(evt); });
 		this.btnMain.setMode('fwd').setBackground(MD.Party[this.party].color);
@@ -140,15 +142,16 @@ client = {
 			this.handleUIEvent({ type:event.currentTarget.dataset.id }); });
 		if(!document.fullscreenEnabled && !document.webkitFullscreenEnabled)
 			document.querySelector('#main_menu > li[data-id="fullscreen"]').style.display = 'none';
-		document.querySelector('#main_menu > li[data-id="exit"]').style.display = 'none';
 		this.toolbarProduction = new ProductionController('#toolbar_production', MD.Party[this.party].color,
 			(unitType)=>{ if(this.cursor) this.handleProductionInput(unitType, this.cursor.x, this.cursor.y); });
 		this.toggleToolbar('main');
 		eludi.click2touch();
 
-		sim.getSimEvents(this.party, null, (data)=>{
-			this.handleExternalEvents(data);
-		});
+		if(this.autoPilot)
+			this.autoPilot.on('simEvents', (evt, data)=>{ this.handleExternalEvents(data); });
+		else
+			sim.getSimEvents(this.party, null, (data)=>{ this.handleExternalEvents(data); });
+
 		sim.getTerrain(this.party, null, (data)=>{
 			if(!data)
 				return this.modalPopup('no connection', ["OK"], ()=>{ this.close(); } );
@@ -374,8 +377,6 @@ client = {
 			return this.close(false, this.outcome);
 		case "joinCredentials":
 			return this.modalPopup('join id: '+this.credentials.match, ['OK']);
-		case "spawnAI":
-			return this.spawnAI();
 		case 'toggleMenu':
 			return this.toggleMenu();
 		default:
@@ -838,13 +839,18 @@ client = {
 		this.numPartiesMax = data.numPartiesMax;
 		this.restoreOrders();
 
-		if(data.state=='running')
-			this.switchState(data.ordersReceived ? 'waiting' : 'input');
+		if(data.state=='running') {
+			this.switchState((data.ordersReceived || this.isDemo) ? 'waiting' : 'input');
+			if(this.autoPilot)
+				this.autoPilot.postMessage({ cmd:'postOrders' });
+		}
 		else {
 			let params;
 			if(data.state=='over' && this.state!='over') {
 				params = { winners:data.winners, loosers:data.loosers, capitulated:capitulated, stats:data.stats };
-				this.modalPopup('GAME OVER.', ["VIEW MAP", "EXIT"], (result)=>{
+				if(this.isDemo)
+					this.close(false, this.outcome);
+				else this.modalPopup('GAME OVER.', ["VIEW MAP", "EXIT"], (result)=>{
 					if(result==1)
 						this.close(false, this.outcome);
 				});
@@ -951,7 +957,9 @@ client = {
 			for(let i=0; i<evt.winners.length; ++i)
 				msg += ' '+MD.Party[evt.winners[i]].name;
 
-			this.modalPopup(msg, ["VIEW MAP", "EXIT"], (result)=>{
+			if(this.isDemo)
+				setTimeout(()=>{ this.close(false, this.outcome); }, 2500);
+			else this.modalPopup(msg, ["VIEW MAP", "EXIT"], (result)=>{
 				if(result==1)
 					this.close(false, this.outcome);
 			});
@@ -1023,9 +1031,10 @@ client = {
 			else
 				this.cursor = null;
 			this.btnMain.setMode('fwd').setBackground(MD.Party[this.party].color);
-			var msg = 'turn '+this.turn+' '+MD.Party[this.party].name;
+			var msg = 'turn '+this.turn;
 
 			if(this.turn==1) {
+				msg += ' '+MD.Party[this.party].name;
 				let numParties = 0;
 				for(let id in this.parties) {
 					if(id == this.credentials.party)
@@ -1047,14 +1056,20 @@ client = {
 		}
 
 		case 'waiting':
-			this.btnMain.setMode('spinner');
+			if(this.isDemo)
+				this.btnMain.setMode('exit');
+			else
+				this.btnMain.setMode('spinner');
 			this.displayStatus('turn '+this.turn+', waiting for events...');
 			this.deselectUnit();
 			break;
 
 		case 'replay':
 			this.cursor = null;
-			this.btnMain.hide();
+			if(this.isDemo)
+				this.btnMain.setMode('exit');
+			else
+				this.btnMain.hide();
 			this.displayStatus('turn '+this.turn);
 			this.nextSimEvent();
 			break;
@@ -1068,7 +1083,6 @@ client = {
 
 			this.btnMain.setMode('exit');
 			this.hideJoinCredentials();
-			document.querySelector('#main_menu > li[data-id="exit"]').style.display = '';
 			document.querySelector('#main_menu > li[data-id="suspend"]').style.display = 'none';
 			document.querySelector('#main_menu > li[data-id="capitulate"]').style.display = 'none';
 			this.displayStatus('GAME OVER.');
@@ -1080,7 +1094,7 @@ client = {
 		this.state = state;
 	},
 
-	spawnAI: function(id, party) {
+	spawnAI: function(id, party, autoPilot=false) {
 		let ai = new Worker('/static/ai.js');
 		this.workers.push(ai);
 		ai.onmessage = (msg)=>{
@@ -1092,13 +1106,30 @@ client = {
 			else if(evt=='error') {
 				this.displayStatus('AI ERROR: '+data);
 			}
+			ai.emit(evt, data);
 		}
-		ai.postMessage({ cmd:id?'resume':'join', id:id?id:this.credentials.match, party:party });
-		this.toggleMenu(false);
+		ai.on = function(event, callback) {
+			if(!(event in this.eventListeners))
+				this.eventListeners[event] = [];
+			this.eventListeners[event].push(callback);
+		}
+		ai.emit = function(event, data) {
+			[event, '*'].forEach((key)=>{
+				if(key in this.eventListeners) {
+					let callbacks = this.eventListeners[key];
+					for(let i=0; i<callbacks.length; ++i)
+						callbacks[i](event, data);
+				}
+			});
+		}
+		ai.eventListeners = {};
+
+		let params = { cmd:id?'resume':'join', id:id?id:this.credentials.match, party:party, autoPilot:autoPilot };
+		ai.postMessage(params);
+		return ai;
 	},
 
 	hideJoinCredentials: function() {
-		document.querySelector('#main_menu > li[data-id="spawnAI"]').style.display = 'none';
 		document.querySelector('#main_menu > li[data-id="joinCredentials"]').style.display = 'none';
 	},
 
