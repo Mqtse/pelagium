@@ -101,7 +101,7 @@ function SimProxy(params, callback) {
 		let self = this;
 
 		let cb = function(data, code) {
-			if(code==200 || code==204) {
+			if(code==200 && (typeof data == 'object') && ('turn' in data)) {
 				self.cache.setItem(key, data);
 				callback(data);
 			}

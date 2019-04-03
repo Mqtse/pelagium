@@ -274,7 +274,7 @@ function Sim(params, callback) {
 				if( !unit || unit.id != order.unit
 					|| !this.map.unitMove(unit, { x:order.to_x, y:order.to_y }, events) )
 				{
-					console.error('move failed', order);
+					//console.log('move failed', order);
 					continue;
 				}
 				events.push(order);

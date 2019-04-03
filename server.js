@@ -107,6 +107,19 @@ function ServerPelagium(topLevelPath, persistence) {
 		return parties;
 	}
 
+	this.availableMatches = function() {
+		let data = { availableMatches:{}, hostName:os.hostname() };
+		this.matches.forEach((match, id)=>{
+			if(match.id!=id || match.sim.state!='running')
+				return;
+			let numPlayersMax = match.sim.numParties;
+			let numPlayers = match.users.size;
+			if(numPlayers < numPlayersMax)
+				data.availableMatches[id] = numPlayersMax - numPlayers;
+		});
+		return data;
+	}
+
 	this.userCreate = function(match, params) {
 		let numPlayersMax = match.sim.numParties;
 		let numPlayers = match.users.size;
@@ -186,11 +199,12 @@ function ServerPelagium(topLevelPath, persistence) {
 		}
 	}
 
-	this.handleRequest = function(method, path, params, resp) {
+	this.handleRequest = function(req, path, params, resp) {
 		const respond = httpUtils.respond;
 		if(!path.length)
 			return respond(resp, 400);
 
+		const method = req.method;
 		if(path.length==1) {
 			if(method=='GET')
 				return httpUtils.serveStatic(resp, 'static/index.html');
@@ -203,8 +217,15 @@ function ServerPelagium(topLevelPath, persistence) {
 
 		if(path.length==2) {
 			let id = path[1];
-			if(id=='scenarios' && method=='GET')
-				return respond(resp, 200, Sim.visibleScenarios);
+			if(method=='GET') {
+				if(id=='scenarios')
+					return respond(resp, 200, Sim.visibleScenarios);
+				else if(id=='availableMatches') {
+					let remoteIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+					if(remoteIp=='127.0.0.1')
+						return respond(resp, 200, this.availableMatches());
+				}
+			}
 
 			let match = this.matches.get(id);
 			if(method=='GET') { // reconnect
@@ -238,7 +259,7 @@ function ServerPelagium(topLevelPath, persistence) {
 		if(!cmd || cmd[0]=='_' || !(cmd in sim) || (typeof sim[cmd]!='function'))
 			return respond(resp, 405, 'invalid command');
 
-		console.log('<<', cmd, user.party, params);
+		console.log('<<', cmd, user.party);
 		if(this.validator.has(cmd)) {
 			let result = this.validator.validate(cmd, params);
 			if(result!==true)
@@ -275,12 +296,12 @@ let server = httpUtils.createServer(cfg, (req, resp, url)=>{
 	if(!url.path.length)
 		return httpUtils.redirect(req, resp, url, { path:[ serverPelagium.path ] });
 
-	console.log(req.method, url.pathname, JSON.stringify(url.query));
+	//console.log(req.method, url.pathname, JSON.stringify(url.query));
 	switch(url.path[0]) { // toplevel services:
 	case 'ping':
 		return httpUtils.respond(resp, 200, 'pong');
 	case serverPelagium.path:
-		return serverPelagium.handleRequest(req.method, url.path, url.query, resp);
+		return serverPelagium.handleRequest(req, url.path, url.query, resp);
 	case 'static':
 	case 'labs':
 		if(url.path.length==2)

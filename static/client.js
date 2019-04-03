@@ -847,7 +847,7 @@ client = {
 		else {
 			let params;
 			if(data.state=='over' && this.state!='over') {
-				params = { winners:data.winners, loosers:data.loosers, capitulated:capitulated, stats:data.stats };
+				params = { winners:data.winners, loosers:data.loosers, capitulated:data.capitulated, stats:data.stats };
 				if(this.isDemo)
 					this.close(false, this.outcome);
 				else this.modalPopup('GAME OVER.', ["VIEW MAP", "EXIT"], (result)=>{
@@ -878,6 +878,9 @@ client = {
 	},
 
 	renderSimEvent: function(evt) {
+		if(typeof evt != 'object')
+			return console.error('malformed event:', evt);
+
 		let unit = ('unit' in evt) ? evt.unit : null;
 		if(unit!==null&&(typeof evt.unit!='object')) {
 			unit = this.units[unit];

@@ -15,7 +15,7 @@ function respond(resp, code, body, mime) {
 	let headers = { 'Cache-Control': 'no-cache, no-store, must-revalidate, proxy-revalidate', 'Pragma':'no-cache',
 		'Access-Control-Allow-Origin':'*' };
 	headers['Content-Type'] = mime ? mime : (typeof body == 'object') ? 'application/json' : 'text/plain';
-	console.log('>>', code, body);
+	console.log('>>', code); //, body);
 	if(code==204) {
 		resp.writeHead(code, headers);
 		resp.end();
@@ -59,6 +59,10 @@ function serveStatic(resp, path, basePath) {
 			return 'image/x-icon';
 		case 'svg':
 			return 'image/svg+xml';
+		case 'woff':
+			return 'font/woff';
+		case 'woff2':
+			return 'font/woff2';
 		case 'appcache':
 			return 'text/cache-manifest';
 		default:
