@@ -122,16 +122,20 @@ client = {
 		this.orders = [];
 		this.simEvents = [];
 		this.turn = 1;
+		this.consistencyState = { turn:this.turn, ordersSent:false, state:this.state };
 		this.cache = new Cache('pelagium/client', this.credentials.id);
 		this.workers = [];
 		this.renderer = new RendererAdhoc(
 			this.foreground.dc, 2*this.settings.scales[this.settings.scales.length-1]);
 
+		let aiOpponents = [];
 		for(let id in this.parties) {
 			let party = this.parties[id];
 			if(party.mode==='AI')
-				this.spawnAI(party.id, party.party);
+				aiOpponents.push(party);
 		}
+		if(aiOpponents.length)
+			this.spawnAI(aiOpponents);
 		this.autoPilot = this.isDemo ? this.spawnAI(this.credentials.id, this.party, true) : null;
 
 		this.btnMain = new ButtonController('#toolbar_main', (evt)=>{ this.handleUIEvent(evt); });
@@ -150,7 +154,7 @@ client = {
 		if(this.autoPilot)
 			this.autoPilot.on('simEvents', (evt, data)=>{ this.handleExternalEvents(data); });
 		else
-			sim.getSimEvents(this.party, null, (data)=>{ this.handleExternalEvents(data); });
+			sim.getSimEvents(this.party, this.consistencyState, (data)=>{ this.handleExternalEvents(data); });
 
 		sim.getTerrain(this.party, null, (data)=>{
 			if(!data)
@@ -583,14 +587,13 @@ client = {
 	addOrder: function(order) {
 		this.orders.push(order);
 		this.cache.setItem('/orders', { turn:this.turn, orders:this.orders });
-		console.log('order', order);
+		//console.log('order', order);
 	},
-	dispatchOrders: function() {
-		if(this.state!='input')
+	dispatchOrders: function(force=false) {
+		if(!force && this.state!='input')
 			return;
 		this.sim.postOrders(this.party, this.orders, this.turn);
-		this.cache.removeItem('/orders');
-		this.orders = [];
+		this.consistencyState.ordersSent = true;
 		for(var id in this.units) {
 			var unit = this.units[id];
 			unit.animation = null;
@@ -660,8 +663,7 @@ client = {
 			if(result==1)
 				return;
 			this.orders = [{ type:'capitulate', party:this.party }];
-			this.state='input';
-			this.dispatchOrders();
+			this.dispatchOrders(true);
 		});
 	},
 
@@ -672,7 +674,7 @@ client = {
 
 		var x = unit.x-this.vp.x, y = unit.y-this.vp.y;
 		var w, h;
-		var scale = w = h = this.cellMetrics.r;
+		var w = h = this.cellMetrics.r;
 		var opacity = 1.0;
 		var offsetOdd = (unit.x%2) ? 0.5*this.cellMetrics.h : 0;
 
@@ -795,6 +797,10 @@ client = {
 				this.handlePresenceEvent(evt);
 				continue;
 			}
+			else if(evt.category=='inconsistency') {
+				this.handleInconsistencyEvent(evt);
+				continue;
+			}
 			this.simEvents.push(evt);
 			simEventsReceived = true;
 		}
@@ -833,7 +839,13 @@ client = {
 		this.fov = new MatrixHex(data.fov);
 
 		this.redrawMap = true;
-		this.turn = parseInt(data.turn);
+		let newTurn = parseInt(data.turn);
+		if(newTurn != this.turn) {
+			this.orders = [];
+			this.cache.removeItem('/orders');
+			this.consistencyState.ordersSent = false;
+		}
+		this.consistencyState.turn =this.turn = newTurn;
 		if(this.turn>1)
 			this.hideJoinCredentials();
 		this.numPartiesMax = data.numPartiesMax;
@@ -873,8 +885,11 @@ client = {
 			if(!this.renderSimEvent(this.simEvents.shift()))
 				setTimeout(()=>{ this.nextSimEvent(); }, 0);
 		}
-		else // todo, roundtrip may be avoided if events are complete
+		else {
+			//console.groupEnd();
+			// todo, roundtrip may be avoided if events are complete
 			this.sim.getSituation(this.party, null, (data)=>{ this.handleSituation(data); });
+		}
 	},
 
 	renderSimEvent: function(evt) {
@@ -891,7 +906,7 @@ client = {
 		switch(evt.type) {
 		case 'retreat':
 		case 'move': {
-			console.log('event', evt);
+			//console.log('event', evt);
 			unit.x = evt.from_x;
 			unit.y = evt.from_y;
 
@@ -912,14 +927,14 @@ client = {
 			return true;
 		}
 		case 'support': {
-			console.log('event', evt);
+			//console.log('event', evt);
 			unit.animation = new AnimationSupport(this.time, unit, evt, unit=>{
 				this.nextSimEvent();
 			});
 			return true;
 		}
 		case 'combat': {
-			console.log('event', evt);
+			//console.log('event', evt);
 			var winner = this.units[evt.winner];
 			if(winner)
 				this.notify(MD.Party[winner.party.id].name+' '+winner.type.name+' prevails at ('+evt.x+','+evt.y+')', 4.0);
@@ -928,7 +943,7 @@ client = {
 			return false;
 		}
 		case 'surrender': {
-			console.log('event', evt);
+			//console.log('event', evt);
 			if(unit == this.selUnit)
 				this.selUnit = null;
 
@@ -939,7 +954,7 @@ client = {
 			return true;
 		}
 		case 'capture': {
-			console.log('event', evt);
+			//console.log('event', evt);
 			var tile = this.mapView.get(evt.x, evt.y);
 			tile.party = evt.party;
 			tile.production = 'inf';
@@ -970,18 +985,24 @@ client = {
 		}
 		case 'turn': {
 			console.log('event', evt);
-			this.updateProduction(evt.turn - this.turn);
-			this.turn = parseInt(evt.turn);
+			let newTurn = parseInt(evt.turn);
+			if(newTurn != this.turn) {
+				this.orders = [];
+				this.cache.removeItem('/orders');
+				this.consistencyState.ordersSent = false;
+			}
+			this.updateProduction(newTurn - this.turn);
+			this.consistencyState.turn = this.turn = newTurn;
 			return false;
 		}
 		case 'contact': {
-			console.log('event', evt);
+			//console.log('event', evt);
 			var tile = this.mapView.get(evt.x, evt.y);
 			tile.unit = this.units[evt.unit.id] = new Unit(evt.unit);
 			return false;
 		}
 		case 'contactLost': {
-			console.log('event', evt);
+			//console.log('event', evt);
 			var tile = this.mapView.get(evt.x, evt.y);
 			if(tile.unit && tile.unit.id === evt.unit)
 				delete tile.unit;
@@ -1016,6 +1037,15 @@ client = {
 				this.hideJoinCredentials();
 		}
 		console.log('presence event type:', evt.type, 'party:', evt.party);
+	},
+	handleInconsistencyEvent: function(evt) {
+		if(evt.type=='getSituation') {
+			this.sim.getSituation(this.party, null, (data)=>{ this.handleSituation(data); });
+		}
+		else if(evt.type=='postOrders')
+			this.dispatchOrders(true);
+
+		console.warn('inconsistency event type:', evt.type, 'turn:', evt.turn, 'ordersReceived:', evt.ordersReceived);
 	},
 
 	switchState: function(state, params) {
@@ -1073,6 +1103,7 @@ client = {
 				this.btnMain.setMode('exit');
 			else
 				this.btnMain.hide();
+			console.log('replay events turn', this.turn);
 			this.displayStatus('turn '+this.turn);
 			this.nextSimEvent();
 			break;
@@ -1094,7 +1125,7 @@ client = {
 		default:
 			return console.error('unhandled application state', state);
 		}
-		this.state = state;
+		this.state = this.consistencyState.state = state;
 	},
 
 	spawnAI: function(id, party, autoPilot=false) {
@@ -1127,7 +1158,21 @@ client = {
 		}
 		ai.eventListeners = {};
 
-		let params = { cmd:id?'resume':'join', id:id?id:this.credentials.match, party:party, autoPilot:autoPilot };
+		let params;
+		if(Array.isArray(id)) {
+			let parties = id;
+			let isResume = parties[0].id ? true : false;
+			if(isResume)
+				params = { cmd:'resume', id:[], party:[] };
+			else
+				params = { cmd:'join', id:this.credentials.match, party:[] };
+			for(let i=0; i<parties.length; ++i) {
+				params.party.push(parties[i].party);
+				if(isResume)
+					params.id.push(parties[i].id);
+			}
+		}
+		else params = { cmd:id ? 'resume' : 'join', id:id?id:this.credentials.match, party:party, autoPilot:autoPilot };
 		ai.postMessage(params);
 		return ai;
 	},

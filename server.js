@@ -259,7 +259,7 @@ function ServerPelagium(topLevelPath, persistence) {
 		if(!cmd || cmd[0]=='_' || !(cmd in sim) || (typeof sim[cmd]!='function'))
 			return respond(resp, 405, 'invalid command');
 
-		console.log('<<', cmd, user.party);
+		console.log(match.id, '<<', cmd, user.party);
 		if(this.validator.has(cmd)) {
 			let result = this.validator.validate(cmd, params);
 			if(result!==true)

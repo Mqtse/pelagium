@@ -203,12 +203,13 @@ let app = {
 	},
 
 	start: function(mode) {
-		let id = $('#code').value;
+		let id = $('#code').value.toUpperCase();
 		if(!id)
 			return this.error('id required.');
 		this.status(mode+' '+id+'...');
 
-		AI.create(mode, id, (evt, data)=>{
+		let params = { cmd:mode, id:id };
+		AI.create(params, (evt, data)=>{
 			if(evt=='credentials') {
 				$('#code').value = data.id;
 				this.status('credentials received');

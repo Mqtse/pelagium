@@ -50,10 +50,37 @@ function Sim(params, callback) {
 		return false;
 	}
 
+	this.checkConsistency = function(party, params) {
+		if(this.state == 'over')
+			return '';
+		if(typeof params != 'object') {
+			console.warn('consistency state expected as params of party', party.name);
+			return 'sendConsistencyState';
+		}
+		params.turn = parseInt(params.turn);
+		if(params.turn != this.turn && params.turn+1 != this.turn) {
+			console.warn(party.name, 'inconsistent client state. Turn client:', params.turn, 'sim:', this.turn);
+			return 'getSituation';
+		}
+		if(params.turn == this.turn) { // todo, handle orders arriving a little bit later
+			let ordersSent = params.ordersSent==='true';
+			let ordersReceived = party.orders !== null;
+			if(ordersSent != ordersReceived) {
+				console.warn(party.name, 'inconsistent client state. Orders sent:', ordersSent, 'received:', ordersReceived);
+				if(!ordersReceived)
+					return 'postOrders';
+			}
+		}
+		return '';
+	}
+
 	/// long polling event listener
 	this.getSimEvents = function(partyId, params, callback) {
-		var party = this.parties[partyId];
-		if(!party.events)
+		let party = this.parties[partyId];
+		let inconsistency = this.checkConsistency(party, params);
+		if(inconsistency)
+			callback([{ type:inconsistency, category:'inconsistency', turn:this.turn, ordersReceived: party.orders !== null }]);
+		else if(!party.events)
 			this.simEventListeners[partyId]=callback;
 		else {
 			callback(party.events);
@@ -131,13 +158,21 @@ function Sim(params, callback) {
 	}
 
 	this._validateOrders = function(party, orders, turn) {
-		if(!(party in this.parties) || turn!=this.turn)
+		if(!(party in this.parties)) {
+			console.warn('validateOrders: invalid party', party);
 			return false;
+		}
+		if(turn!=this.turn) {
+			console.warn('validateOrders: invalid turn', turn, '!=', this.turn);
+			return false;
+		}
 		if(this._isCapitulation(orders))
 			return orders[0].party == party;
 
-		if(this.parties[party].orders) // orders already received
+		if(this.parties[party].orders) {
+			console.warn('validateOrders: orders already received');
 			return false;
+		}
 		if(!orders.length)
 			return true;
 
@@ -147,8 +182,9 @@ function Sim(params, callback) {
 			var order = orders[i];
 
 			var unit = order.unit;
-			if(unit) {
+			if(unit && order.type!='production') {
 				if(unit in unitsHavingOrders) {
+					console.warn("validateOrders: multiple orders for a single unit:", order);
 					delete orders[i];
 					++numInvalidOrders;
 					continue;
@@ -160,24 +196,34 @@ function Sim(params, callback) {
 			switch(order.type) {
 			case 'move': {
 				var unit = this.map.get(order.from_x, order.from_y).unit;
-				if(!unit || unit.id != order.unit || unit.party.id != party)
+				if(!unit || unit.id != order.unit) {
+					console.warn('validateOrders: unit not found at location', order);
 					break;
+				}
+				if(unit.party.id != party) {
+					console.warn('validateOrders: unit does not obey to party', party);
+					break;
+				}
 				var distance = MatrixHex.distHex(unit, { x:order.to_x, y:order.to_y });
-				if(distance>0 && distance<=unit.type.move)
-					orderValid = true;
+				if(distance<1 || distance>unit.type.move) {
+					console.warn('validateOrders: unit destination beyond movement range', order);
+					break;
+				}
+				orderValid = true;
 				break;
 			}
 			case 'production': {
 				var tile = this.map.get(order.x, order.y);
 				if(tile && tile.party==party && tile.terrain==MD.OBJ && (order.unit in MD.Unit))
 					orderValid = true;
+				else
+					console.warn('validateOrders: location does not obey to production orders', order);
 				break;
 			}
 			default:
 				break;
 			}
 			if(!orderValid) {
-				console.error('invalid order', order);
 				delete orders[i];
 				++numInvalidOrders;
 			}
@@ -264,6 +310,7 @@ function Sim(params, callback) {
 	}
 
 	this._evaluateSimEvents = function() {
+		console.log('--', this.id, 'evaluate turn', this.turn, '--');
 		var events = [ ];
 		var orders = this._mergeOrders();
 		for(var i=0; i<orders.length; ++i) {
@@ -689,7 +736,8 @@ function Sim(params, callback) {
 			pageSz:32,
 			fractionObjectivesVictory:0.66,
 			timePerTurn: 86400, // 1 day
-			devMode: 1
+			devMode: 1,
+			id:''
 		};
 		for(var key in defaults)
 			this[key] =(key in params) ?

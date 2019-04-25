@@ -17,15 +17,19 @@ http = {
 		var xhr = new XMLHttpRequest();
 		try {
 			xhr.open( method, url, true );
+			if(this.timeout)
+				xhr.timeout = this.timeout;
 			if(params && method=='POST')
 				xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
-			if(callback) xhr.onload = xhr.onerror = function(event) {
+			if(callback) xhr.onload = xhr.onerror = xhr.ontimeout = function(event) {
 				var status = (xhr.status===undefined) ? -1 : (xhr.status==1223) ? 204 : xhr.status;
 				var response = (xhr.status==-1 || xhr.status==204) ? null
 					: (xhr.contentType=='application/json' || (('getResponseHeader' in xhr) && xhr.getResponseHeader('Content-Type')=='application/json'))
 					? JSON.parse(xhr.responseText) : xhr.responseText;
 				if(event.type == 'error')
 					console.error(url, event);
+				else if(event.type == 'timeout')
+					status = 408;
 				callback.call(self, response, status );
 			}
 			xhr.send( (params && method=='POST') ? this.encodeURI(params) : null );
@@ -46,7 +50,8 @@ http = {
 
 	post: function(url, params, callback, self) {
 		return this.request('POST', url, params, callback, self);
-	}
+	},
+	timeout: 32000
 }
 
 eludi = {

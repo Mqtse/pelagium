@@ -100,8 +100,8 @@ let MissionExpand = function(ai, map, x,y) {
 				dest = pos;
 			});
 			if(dest) {
-				let order = { type:'move', unit:unit.id, from_x:unit.x, from_y:unit.y, to_x:dest.x, to_y:dest.y };
-				console.log(this.type, order);
+				let order = { type:'move', unit:unit.id, from_x:unit.x, from_y:unit.y, to_x:dest.x, to_y:dest.y, mission:this.str() };
+				//console.log(this.type, order);
 				orders.push(order);
 				unitsToIgnore[unit.id]=true;
 				occupiedTiles.set(dest.x, dest.y, true);
@@ -132,9 +132,15 @@ let MissionAttack = function(ai, map, x,y) {
 			let unit = this.verifyUnit(id);
 			if(!unit)
 				continue;
+
+			let path = ai.pathFinder.fastestPath(unit, this, unit.type.medium);
+			let step = path.length-1;
+			while(path[step].cost > 2*unit.type.move && step>1)
+				--step;
+
 			let order = { type:'move', unit:id,
-				from_x:unit.x, from_y:unit.y, to_x:this.x, to_y:this.y };
-			console.log(this.type, order);
+				from_x:unit.x, from_y:unit.y, to_x:path[step].x, to_y:path[step].y, mission:this.str() };
+			//console.log(this.type, order);
 			orders.push(order);
 		}
 	}
@@ -169,8 +175,8 @@ let MissionDefend = function(ai, map, x,y) {
 			heatMap.incr(pos.x, pos.y, 1);
 		}
 
-		defenders = defenders.slice(0, Math.ceil(attackers.length*1.33));
-		defenders.forEach((unit)=>{
+		Object.keys(this.units).forEach((id)=>{
+			let unit = this.verifyUnit(id);
 			if(!unit || (unit.x==this.x && unit.y==this.y))
 				return; // remain on objective
 
@@ -219,8 +225,8 @@ let MissionDefend = function(ai, map, x,y) {
 				return;
 
 			let order = { type:'move', unit:unit.id,
-				from_x:unit.x, from_y:unit.y, to_x:dest.x, to_y:dest.y };
-			console.log(this.type, order);
+				from_x:unit.x, from_y:unit.y, to_x:dest.x, to_y:dest.y, mission:this.str() };
+			//console.log(this.type, order);
 			orders.push(order);
 			heatMap.set(dest.x, dest.y, 0); // avoid multiple assignments to same dest
 		});
@@ -264,9 +270,9 @@ MissionDefend.checkNeed = function(obj, map, party) {
 	return defenders.slice(0, Math.ceil(attackers.length*1.33)); // might be []
 }
 
-let AI = function(sim, credentials, autoPilot=false) {
+let AI = function(sim, credentials, autoPilot=false, isSynchronous=false) {
 	this.handleTerrain = function(data) {
-		console.log('terrain received');
+		//console.log(MD.Party[this.credentials.party].name, 'terrain received');
 
 		let map = this.map = new MatrixHex(data);
 		this.objectives = [];
@@ -287,19 +293,38 @@ let AI = function(sim, credentials, autoPilot=false) {
 		});
 		this.emit('terrain', data);
 	}
-	this.handleSimEvents = function(events) {
-		this.simEvents = events;
-		this.capturedObjs = {};
-		console.groupCollapsed(events.length+' sim events received');
-		for(let i=0; i<events.length; ++i) {
+	this.handleExternalEvents = function(events) {
+		let simEvents = [];
+
+		if(Array.isArray(events)) for(let i=0; i<events.length; ++i) {
 			let evt = events[i];
 			if(evt.category == 'presence')
 				continue; // ignore
+			else if(evt.category == 'inconsistency')
+				this.handleInconsistencyEvent(evt);
+			else simEvents.push(evt);
+		}
+		if(!simEvents.length) {
+			if(isSynchronous)
+				this.getSimEvents();
+			return;
+		}
 
+		this.capturedObjs = {};
+		console.log(MD.Party[this.credentials.party].name, simEvents.length+' sim events received');
+		for(let i=0; i<simEvents.length; ++i) {
+			let evt = simEvents[i];
 			switch(evt.type) {
-			case 'turn':
-				this.turn = parseInt(evt.turn);
+			case 'turn': {
+				let newTurn = parseInt(evt.turn);
+				if(newTurn != this.turn) {
+					this.orders = [];
+					this.ordersGenerated = false;
+					this.consistencyState.ordersSent = false;
+				}
+				this.turn = this.consistencyState.turn = newTurn;
 				break;
+			}
 			case 'capture':
 				if(evt.party == this.credentials.party && evt.from)
 					this.capturedObjs[evt.id] = true;
@@ -309,17 +334,25 @@ let AI = function(sim, credentials, autoPilot=false) {
 			case 'contact':
 				continue; // ignore
 			}
-			console.log(evt);
+			//console.log(evt);
 		}
-		console.groupEnd();
 
 		this.sim.getSituation(this.credentials.party, null, (data)=>{
 			this.handleSituation(data);
 		});
 		this.emit('simEvents', events);
 	}
+	this.handleInconsistencyEvent = function(evt) {
+		if(evt.type=='getSituation')
+			this.sim.getSituation(this.credentials.party, null, (data)=>{ this.handleSituation(data); });
+		else if(evt.type=='postOrders')
+			this.dispatchOrders();
+
+		console.warn('inconsistency event type:', evt.type, 'turn:', evt.turn, 'ordersReceived:', evt.ordersReceived);
+	}
+
 	this.handleSituation = function(data) {
-		console.log('situation received, turn', data.turn);
+		console.log(MD.Party[this.credentials.party].name, 'situation received, turn', data.turn);
 
 		for(let i=0; i<this.map.data.length; ++i) {
 			let tile = this.map.data[i];
@@ -349,10 +382,19 @@ let AI = function(sim, credentials, autoPilot=false) {
 		}
 
 		this.fov = new MatrixHex(data.fov);
-		this.turn = parseInt(data.turn);
+
+		let newTurn = parseInt(data.turn);
+		if(newTurn != this.turn) {
+			this.orders = [];
+			this.ordersGenerated = false;
+			this.consistencyState.ordersSent = false;
+		}
+		this.turn = this.consistencyState.turn = newTurn;
+
 		this.state = data.state;
+		this.consistencyState.ordersSent = data.ordersReceived;
 		if(!data.ordersReceived)
-			setTimeout(()=>{ this.update(); }, 1000);
+			setTimeout(()=>{ this.update(); }, 500+Math.floor(Math.random()*1000));
 		this.emit('situation', data);
 	}
 	this.update = function() { // main method
@@ -362,6 +404,7 @@ let AI = function(sim, credentials, autoPilot=false) {
 		this.cleanupMissions();
 		this.assignMissions();
 		this.generateOrders();
+		this.validateOrders();
 		if(!this.dispatchOrdersBlocked)
 			this.dispatchOrders();
 	}
@@ -378,7 +421,7 @@ let AI = function(sim, credentials, autoPilot=false) {
 		}
 	}
 	this.assignMissions = function() {
-		console.groupCollapsed('assignMissions turn '+this.turn);
+		//console.log(MD.Party[this.credentials.party].name, 'assignMissions turn '+this.turn);
 		let expandMissions = [];
 		let availableObjs = [];
 		let availableUnits = [];
@@ -413,7 +456,7 @@ let AI = function(sim, credentials, autoPilot=false) {
 					mission.assignUnit(unit);
 				}
 			}
-			console.log(mission, mission.str());
+			//console.log(mission, mission.str());
 		}
 
 		for(let id in this.units) {
@@ -440,7 +483,7 @@ let AI = function(sim, credentials, autoPilot=false) {
 					let mission = new MissionAttack(this, this.map, pos.x, pos.y);
 					mission.assignUnit(unit);
 					this.missions[mission.id] = mission;
-					console.log('mission', mission.str());
+					//console.log('mission', mission.str());
 				}
 			}
 			if(!unit.mission)
@@ -458,7 +501,7 @@ let AI = function(sim, credentials, autoPilot=false) {
 			mission.assignUnit(unit);
 			expandMissions.push(mission);
 			availableObjs.splice(availableObjs.indexOf(obj), 1);
-			console.log('mission', mission.str());
+			//console.log('mission', mission.str());
 		}
 
 		// assign available units round-robin to expand missions:
@@ -502,11 +545,12 @@ let AI = function(sim, credentials, autoPilot=false) {
 				}
 			}
 		}
-		console.log('production (',obj.x,',',obj.y,') unit:', unit);
+		//console.log('production (',obj.x,',',obj.y,') unit:', unit);
 		orders.push({ type:'production', unit:unit, x:obj.x, y:obj.y });
 	}
+
 	this.generateOrders = function() {
-		console.groupCollapsed('generateOrders');
+		console.log(MD.Party[this.credentials.party].name, 'generateOrders');
 		for(let id in this.objectives) {
 			let obj = this.objectives[id];
 			if(obj.party!=this.credentials.party || obj.progress>0)
@@ -517,27 +561,77 @@ let AI = function(sim, credentials, autoPilot=false) {
 			let mission = this.missions[id];
 			mission.generateOrders(this.orders);
 		}
-		console.groupEnd();
+		this.ordersGenerated = true;
+		//console.groupEnd();
+	}
+
+	this.validateOrders = function() {
+		let unitsHavingOrders = {};
+		let invalidOrders = [];
+		for(let i=0; i < this.orders.length; ++i) {
+			let order = this.orders[i];
+			// { type:'move', unit:unit.id, from_x:unit.x, from_y:unit.y, to_x:dest.x, to_y:dest.y }
+			if(order.type !== 'move')
+				continue;
+
+			// move orders length 0 / beyond movement range:
+			if(order.from_x === order.to_x && order.from_y === order.to_y) {
+				console.warn("validateOrders: move from/to are identical:", order);
+				invalidOrders.push(i);
+			}
+			else {
+				let dist = MatrixHex.distHex({x:order.from_x, y:order.from_y},{x:order.to_x, y:order.to_y});
+				let unit = this.units[order.unit];
+				if(dist > unit.type.move) {
+					console.warn("validateOrders: unit destination beyond movement range", order, unit.serialize())
+					invalidOrders.push(i);
+				}	
+			}
+
+			// multiple orders per unit:
+			if(order.unit in unitsHavingOrders) {
+				console.groupCollapsed("validateOrders: multiple orders for a single unit");
+				console.warn(i, order);
+				let firstIndex = unitsHavingOrders[order.unit];
+				console.warn(firstIndex, this.orders[firstIndex]);
+				console.groupEnd();
+				invalidOrders.push(firstIndex); // or i
+			}
+			else unitsHavingOrders[order.unit] = i;
+		}
+
+		if(!invalidOrders.length)
+			return;
+		invalidOrders = [...new Set(invalidOrders)].sort().reverse();
+		for(let i=0; i<invalidOrders.length; ++i)
+			this.orders.splice(invalidOrders[i], 1);
 	}
 
 	this.dispatchOrders = function() {
 		this.sim.postOrders(this.credentials.party, this.orders, this.turn);
-		this.orders = [];
+		this.consistencyState.ordersSent = true;
 		if(this.autoPilot)
 			this.dispatchOrdersBlocked = true;
 	}
 
 	this.unblockDispatchOrders = function() {
-		if(this.orders.length)
+		if(this.ordersGenerated)
 			this.dispatchOrders();
 		else
 			this.dispatchOrdersBlocked = false;
 	}
 
-	this.init = function() {
-		this.sim.getSimEvents(this.credentials.party, null, (data)=>{
-			this.handleSimEvents(data);
+	this.getSimEvents = function() {
+		if(this.state=='over')
+			return;
+		this.sim.getSimEvents(this.credentials.party, this.consistencyState, (data)=>{
+			this.handleExternalEvents(data);
 		});
+	}
+
+	this.init = function() {
+		if(!isSynchronous)
+			this.getSimEvents();
 		this.sim.getTerrain(this.credentials.party, null, (data)=>{
 			this.handleTerrain(data);
 		});
@@ -565,11 +659,12 @@ let AI = function(sim, credentials, autoPilot=false) {
 	this.units = null;
 	this.objectives = null;
 	this.fov = null;
-	this.simEvents = null;
 	this.capturedObjs = {};
-	this.missions = {}; // long term
-	this.orders = []; // immediate for this turn
-	this.turn = -1;
+	this.missions = {};
+	this.orders = [];
+	this.ordersGenerated = false;
+	this.turn = 1;
+	this.consistencyState = { turn:this.turn, ordersSent:false, mode:'AI' };
 	this.credentials = credentials;
 	this.autoPilot = autoPilot;
 	this.dispatchOrdersBlocked = false;
@@ -578,31 +673,53 @@ let AI = function(sim, credentials, autoPilot=false) {
 
 	setTimeout(()=>{ this.init(); }, 0);
 }
+AI.instances = [];
+
 AI.create = function(params, callback, allEvents) {
-	params.name = 'AI_'+params.party;
+	params.name = params.party ? ('AI_'+params.party) : 'AI';
 	params.mode = 'AI';
 	let sim = new SimProxy(params, (credentials, sim)=>{
-		let ai = AI.instance = new AI(sim, credentials, params.autoPilot);
+		let ai = new AI(sim, credentials, params.autoPilot, params.isSynchronous);
+		AI.instances.push(ai);
 		callback('credentials', credentials);
 		ai.on(allEvents ? '*' : 'error', callback);
-		if(ai.autoPilot && !allEvents)
+		if((ai.autoPilot || params.isSynchronous) && !allEvents)
 			ai.on('simEvents', callback);
 	});
 	sim.on('error', callback);
+}
+
+AI.createMulti = function(params, callback, allEvents) {
+	let parties = params.party;
+	let simEventsRequested = -1;
+	let cb = function(event, data) {
+		if(event=='credentials' && simEventsRequested<0) {
+			AI.instances[++simEventsRequested].getSimEvents(); // initiate sim event listening
+		}
+		if(event=='simEvents')
+			AI.instances[++simEventsRequested % AI.instances.length].getSimEvents();
+		else
+			callback(event, data);
+	}
+	for(let i=0; i<parties.length; ++i) {
+		let p = { cmd:params.cmd, party:parties[i], isSynchronous:true,
+			id:Array.isArray(params.id) ? params.id[i] : params.id };
+		AI.create(p, cb, allEvents);
+	}
 }
 
 if(typeof importScripts === 'function') { // webworker
 	onmessage = function(e) {
 		let params = e.data;
 		if(params.cmd=='join' || params.cmd=='resume') {
-			AI.create(params, (evt, data)=>{
+			let method = Array.isArray(params.party) ? 'createMulti' : 'create';
+			AI[method](params, (evt, data)=>{
 				postMessage({ type:evt, data:data });
 			});
 		}
-		else if(params.cmd == 'postOrders') {
-			let ai = AI.instance;
-			if (ai && ai.autoPilot)
-				ai.unblockDispatchOrders();
-		}
+		else if(params.cmd == 'postOrders')
+			for(let i=0; i<AI.instances.length; ++i)
+				if(AI.instances[i].autoPilot)
+					AI.instances[i].unblockDispatchOrders();
 	}
 }

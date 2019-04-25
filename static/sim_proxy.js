@@ -62,13 +62,16 @@ function SimProxy(params, callback) {
 			return console.error('getSimEvents wrong party. expected:', this.credentials.party,'actual:',party);
 
 		var url = this.userUrl+'/getSimEvents';
+		if(this.isSynchronous)
+			return http.get(url, params, callback);
+
 		var cbPoll = function(data, code) {
 			if(data)
-				callback(data);
-			setTimeout(function() { http.get(url, params, cbPoll); },
-				(code==200 || code==204) ? 0 : retryInterval);
+				callback(data, code);
+			setTimeout(()=>{ http.get(url, params, cbPoll); },
+				(code==200 || code==204 || code==408) ? 5 : retryInterval);
 		}
-		cbPoll(); // initiate long-polling
+		cbPoll(null, 204); // initiate long-polling
 	}
 	this.getTerrain = function(party, params, callback) {
 		let key = '/getTerrain';
@@ -259,6 +262,7 @@ function SimProxy(params, callback) {
 	this.cache = null;
 	this.userUrl = '';
 	this.credentials = null;
+	this.isSynchronous = params.isSynchronous ? true : false;
 	if(callback)
 		this._init(params);
 }

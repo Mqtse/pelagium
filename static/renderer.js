@@ -95,6 +95,7 @@ function AnimationMove(tStart, unit, destination, callback, cbData) {
 				this.dx = Math.sin(angle);
 				this.dy = -Math.cos(angle);
 				this.tStart = tNow;
+				deltaT = 0;
 				destination.shift();
 			}
 			else {

@@ -15,7 +15,7 @@ function respond(resp, code, body, mime) {
 	let headers = { 'Cache-Control': 'no-cache, no-store, must-revalidate, proxy-revalidate', 'Pragma':'no-cache',
 		'Access-Control-Allow-Origin':'*' };
 	headers['Content-Type'] = mime ? mime : (typeof body == 'object') ? 'application/json' : 'text/plain';
-	console.log('>>', code); //, body);
+	//console.log('>>', code, body);
 	if(code==204) {
 		resp.writeHead(code, headers);
 		resp.end();
@@ -26,6 +26,7 @@ function respond(resp, code, body, mime) {
 			: (typeof body == 'number') ? body.toString() : body);
 	}
 	else setTimeout(()=>{ // thwart brute force attacks
+		console.log('>>', code, body);
 		headers['Content-Type']='application/json';
 		resp.writeHead(code, headers);
 		resp.end('{"status":'+code+',"error":"'+body+'"}');
