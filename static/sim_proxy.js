@@ -165,7 +165,7 @@ function SimProxy(params, callback) {
 				this.postOrders(this.credentials.party, orders);
 		}
 
-		if(typeof localStorage !=='undefined' && mode!='AI')
+		if(typeof localStorage !=='undefined' && mode!='AI' && mode!='demo' && mode!='tutorial')
 			localStorage.setItem('pelagium', JSON.stringify({resume:data.id}));
 		this.cache.setItem('/credentials', data);
 		callback(data, this);
@@ -183,6 +183,7 @@ function SimProxy(params, callback) {
 				break;
 			case 'demo':
 			case 'start':
+			case 'tutorial':
 				break;
 			case 'join':
 				url += '/' + params.id;
@@ -194,7 +195,7 @@ function SimProxy(params, callback) {
 		delete params.id;
 
 		let aiOpponents = [];
-		if(params.cmd in {'start':true,'demo':true} && params.parties) {
+		if(params.cmd in {'start':true,'demo':true, 'tutorial':true} && params.parties) {
 			for(let key in params.parties) {
 				let value = params.parties[key];
 				if(value == 0)
@@ -210,6 +211,8 @@ function SimProxy(params, callback) {
 				switch(code) {
 				case 404: 
 					msg = 'invalid '+params.cmd+' id';
+					if(params.cmd==='resume' && typeof localStorage !=='undefined')
+						localStorage.removeItem('pelagium');
 					break;
 				case 0:
 					msg = 'no connection';
@@ -232,7 +235,7 @@ function SimProxy(params, callback) {
 						let ai = aiOpponents[i];
 						data.parties[ai.party] = ai;
 					}
-					if(params.cmd=='demo')
+					if(params.cmd in {'demo':true, 'tutorial':true})
 						params.mode = data.mode = params.cmd;
 					return this._handleCredentials(data, params.mode);
 				}

@@ -84,13 +84,41 @@ client = {
 		cellHeight:36,
 		scales: [ 18, 26, 36, 52, 72 ]
 	},
+	loadPreferences: function() {
+		if(localStorage && localStorage.pelagium_prefs) try {
+			return JSON.parse(localStorage.pelagium_prefs);
+		} catch(err) {
+			console.error(err);
+		}
+		return {};
+	},
+	savePreferences: function(prefs={}) {
+		for(let key in prefs)
+			this.preferences[key] = prefs[key];
+		if(localStorage)
+			localStorage.setItem('pelagium_prefs', JSON.stringify(this.preferences));
+	},
 	init: function(credentials, sim) {
 		this.background = document.getElementById('background');
 		this.background.dc = extendCanvasContext(this.background.getContext("2d"));
 		this.foreground = document.getElementById('foreground');
 		this.foreground.dc = extendCanvasContext(this.foreground.getContext("2d"));
-		this.vp = { x:0, y:0, width:1, height:1 };
-		this.cellMetrics = MapHex.calculateCellMetrics(this.settings.cellHeight);
+		this.vp = {
+			x:0, y:0, width:1, height:1, offsetX:0, offsetY:0, cellMetrics:null,
+			mapToScreen: function(pos) {
+				let x = pos.x-this.x;
+				let y = pos.y-this.y;
+				let offsetY = this.offsetY + ((pos.x%2) ? 0.5*this.cellMetrics.h : 0);
+				return { x:x*this.cellMetrics.w+this.offsetX, y:y*this.cellMetrics.h+offsetY };
+			},
+			screenToMap: function(screen) {
+				let offsetX = this.offsetX-0.75*this.cellMetrics.r;
+				let cellX = Math.floor((screen.x-offsetX) / this.cellMetrics.w) + this.x;
+				let offsetY = this.offsetY+((cellX%2) ? 0 : -0.5*this.cellMetrics.h);
+				let cellY = Math.floor((screen.y-offsetY) / this.cellMetrics.h) + this.y;
+				return { x:cellX, y:cellY };
+			}
+		};
 		this.resize();
 
 		window.onresize = ()=>{ this.resize(); }
@@ -100,15 +128,19 @@ client = {
 		eludi.addKeyEventListener(window, (event)=>{ this.handleKeyEvent(event); });
 
 		this.state = 'init';
+		this.preferences = this.loadPreferences();
 		this.sim = sim;
 		this.parties = credentials.parties || {};
 		delete credentials.parties;
 		this.credentials = credentials;
-		this.party = credentials.party;
+		this.party = this.foregroundParty = credentials.party;
 		this.isDemo = credentials.mode === 'demo';
+		this.isTutorial = credentials.mode === 'tutorial';
 		this.numPartiesMax = 2;
 		this.mapView = null;
 		this.redrawMap = true;
+		this.showInfo = ('showInfo' in this.preferences) ? this.preferences.showInfo : true;
+		this.toggleInfo(this.showInfo);
 		this.fov = null; // field of vision
 		this.units = {};
 		this.selUnit = null;
@@ -121,6 +153,7 @@ client = {
 		this.frames = 0;
 		this.orders = [];
 		this.simEvents = [];
+		this.eventListeners = {};
 		this.turn = 1;
 		this.consistencyState = { turn:this.turn, ordersSent:false, state:this.state };
 		this.cache = new Cache('pelagium/client', this.credentials.id);
@@ -138,16 +171,25 @@ client = {
 			this.spawnAI(aiOpponents);
 		this.autoPilot = this.isDemo ? this.spawnAI(this.credentials.id, this.party, true) : null;
 
-		this.btnMain = new ButtonController('#toolbar_main', (evt)=>{ this.handleUIEvent(evt); });
+		this.btnMain = new ButtonController('#toolbar_main', (evt)=>{
+			if(this.isTutorial)
+				this.emit(evt.type, evt); // handle by tutorial
+			else
+				this.handleUIEvent(evt);
+		});
 		this.btnMain.setMode('fwd').setBackground(MD.Party[this.party].color);
 		document.getElementById('main_menu').addEventListener("click", (event)=>{
 			this.handleUIEvent({ type:event.target.dataset.id }); });
 		document.getElementById('btn_menu').addEventListener("click", (event)=>{
 			this.handleUIEvent({ type:event.currentTarget.dataset.id }); });
 		if(!document.fullscreenEnabled && !document.webkitFullscreenEnabled)
-			document.querySelector('#main_menu > li[data-id="fullscreen"]').style.display = 'none';
+			this.hideMenuItem('fullscreen');
 		this.toolbarProduction = new ProductionController('#toolbar_production', MD.Party[this.party].color,
 			(unitType)=>{ if(this.cursor) this.handleProductionInput(unitType, this.cursor.x, this.cursor.y); });
+		if(!this.isDemo && !this.isTutorial)
+			this.hideMenuItem('exit');
+		else
+			this.hideMenuItem('joinCredentials').hideMenuItem('suspend').hideMenuItem('capitulate');
 		this.toggleToolbar('main');
 		eludi.click2touch();
 
@@ -185,6 +227,21 @@ client = {
 		eludi.openUrl(baseUrl, params, false);
 	},
 
+	on: function(event, callback) {
+		if(!(event in this.eventListeners))
+			this.eventListeners[event] = [];
+		this.eventListeners[event].push(callback);
+	},
+	emit: function(event, data) {
+		[event, '*'].forEach((key)=>{
+			if(key in this.eventListeners) {
+				let callbacks = this.eventListeners[key];
+				for(let i=0; i<callbacks.length; ++i)
+					callbacks[i](event, data);
+			}
+		});
+	},
+
 	resize: function(scaleOnly) {
 		let width = window.innerWidth, height = window.innerHeight;
 		if(navigator.standalone) { // mobile safari webapp hacks
@@ -202,16 +259,17 @@ client = {
 			}
 		}
 
-		if(!('offsetX' in this.vp)) {
-			this.vp.offsetX = 0.5*this.cellMetrics.r;
+		if(this.vp.cellMetrics === null) {
+			this.vp.cellMetrics = MapHex.calculateCellMetrics(this.settings.cellHeight);
+			this.vp.offsetX = 0.5*this.vp.cellMetrics.r;
 			this.vp.offsetY = 0;
 		}
 		if(!scaleOnly) {
 			this.background.width = this.foreground.width = width;
 			this.background.height = this.foreground.height = height;
 		}
-		this.vp.width = Math.ceil(1.25+width/this.cellMetrics.w);
-		this.vp.height = Math.ceil(1.5+height/this.cellMetrics.h);
+		this.vp.width = Math.ceil(1.25+width/this.vp.cellMetrics.w);
+		this.vp.height = Math.ceil(1.5+height/this.vp.cellMetrics.h);
 		this.redrawMap = true;
 	},
 
@@ -231,11 +289,30 @@ client = {
 	},
 
 	toggleMenu: function(onOrOff) {
-		var m=document.getElementById('menus');
+		var elem = document.getElementById('menus');
 		if(onOrOff===undefined)
-			m.style.display = (m.style.display=='none') ? '' : 'none';
+			elem.style.display = (elem.style.display=='none') ? '' : 'none';
 		else
-			m.style.display = onOrOff ? '' : 'none';
+			elem.style.display = onOrOff ? '' : 'none';
+
+		if(elem.style.display == '')
+			document.getElementById('info_panel').style.display = 'none';
+		else if(this.showInfo)
+			this.toggleInfo(true);
+	},
+	toggleInfo: function(isOn) {
+		this.showInfo = isOn;
+		var elem = document.getElementById('info_panel');
+		elem.style.display = isOn ? '' : 'none';
+
+		if(isOn)
+			document.getElementById('menus').style.display = 'none';
+		document.getElementById('toggleInfo').innerHTML
+			= isOn ? 'hide unit info' : 'show unit info';
+
+	},
+	setInfo: function(content) {
+		document.getElementById('info_panel').innerHTML = content ? content : '';
 	},
 
 	toggleToolbar: function(id) {
@@ -251,18 +328,15 @@ client = {
 	},
 
 	handlePointerEvent: function(event) {
-		var offsetX = this.vp.offsetX-0.75*this.cellMetrics.r;
-		var cellX = Math.floor((event.x-offsetX) / this.cellMetrics.w) + this.vp.x;
-		var offsetY = this.vp.offsetY+((cellX%2) ? 0 : -0.5*this.cellMetrics.h);
-		var cellY = Math.floor((event.y-offsetY) / this.cellMetrics.h) + this.vp.y;
-
 		switch(event.type) {
 		case 'start':
 			if(event.id==1 && event.pointerType!='mouse') {
-				this.panning = false;
 				this.pointerEventStartTime = Date.now();
+				if(!this.panning && !this.pinch)
+					this.emit('fastDraw');
+				this.panning = false;
 				this.pinch = [{x:this.prevX, y:this.prevY}, {x:event.x, y:event.y}];
-			}
+				}
 			else if(event.id==0) {
 				this.pointerEventStartTime = Date.now();
 				this.prevX = event.x;
@@ -288,10 +362,12 @@ client = {
 				return this.viewZoom(factor, centerX, centerY, -dx/2, -dy/2);
 			}
 			var dx=this.prevX-event.x, dy=this.prevY-event.y;
-			if(this.panning || (Math.pow(dx,2)+Math.pow(dy,2) >= Math.pow(this.cellMetrics.r,2)) ) {
-				this.panning = true;
+			if(this.panning || (Math.pow(dx,2)+Math.pow(dy,2) >= Math.pow(this.vp.cellMetrics.r,2)) ) {
 				this.prevX = event.x;
 				this.prevY = event.y;
+				if(!this.panning && !this.pinch)
+					this.emit('fastDraw');
+				this.panning = true;
 				this.viewPan(dx, dy);
 			}
 			break;
@@ -301,9 +377,15 @@ client = {
 			else if(this.pinch || this.panning) {
 				this.pinch = this.panning = false;
 				this.redrawMap = true;
+				this.emit('fullDraw');
 			}
-			else
-				this.handleMapInput('click', cellX, cellY);
+			else {
+				let cell = this.vp.screenToMap(event);
+				if(!this.isTutorial)
+					this.handleMapInput('click', cell.x, cell.y);
+				else
+					this.emit('mapInput', {x:cell.x, y:cell.y});
+			}
 			this.pointerEventStartTime=0;
 		}
 	},
@@ -329,7 +411,7 @@ client = {
 			return;
 		case 13: // enter
 		case 32: // space
-			if(!this.cursor)
+			if(!this.cursor || this.isTutorial)
 				currentCursor();
 			else
 				this.handleMapInput('click', this.cursor.x, this.cursor.y);
@@ -341,15 +423,19 @@ client = {
 			return this.viewZoomStep(1);
 		case 37: // left
 			--currentCursor().x;
+			this.updateCursorInfo();
 			break;
 		case 38: // up
 			--currentCursor().y;
+			this.updateCursorInfo();
 			break;
 		case 39: // right
 			++currentCursor().x;
+			this.updateCursorInfo();
 			break;
 		case 40: // down
 			++currentCursor().y;
+			this.updateCursorInfo();
 			break;
 		case 122: // F11
 			return this.toggleFullScreen();
@@ -368,8 +454,6 @@ client = {
 		case 'pause':
 			// todo
 			break;
-		case 'spinner':
-			break; // ignore
 		case 'fullscreen':
 			this.toggleMenu(false);
 			return this.toggleFullScreen();
@@ -383,6 +467,10 @@ client = {
 			return this.modalPopup('join id: '+this.credentials.match, ['OK']);
 		case 'toggleMenu':
 			return this.toggleMenu();
+		case 'toggleInfo':
+			this.toggleInfo(!this.showInfo);
+			this.savePreferences({showInfo: this.showInfo});
+			return this.toggleMenu(false);
 		default:
 			console.error('unhandled UI event', event);
 		}
@@ -422,81 +510,61 @@ client = {
 		else
 			this.toggleToolbar('main');
 
-		if(!tile.unit || (this.selUnit == tile.unit))
+		if(this.selUnit && this.selUnit == tile.unit) {
 			this.deselectUnit();
-		else
-			this.selectUnit(tile.unit);
-
-		var msg = '('+cellX+','+cellY+') ';
-		if(!tile.unit) {
-			if(tile.party)
-			msg += MD.Party[tile.party].name+' ';
-			const Terrain =MD.Terrain[tile.terrain];
-			msg += Terrain.name;
-
-			if(Terrain.defend!=1)
-				msg += ', defense '+ Terrain.defend;
-			if(Terrain.move!=1)
-			 	msg += ', movement cost '+Terrain.move;
-			if(Terrain.concealment)
-				msg += ', concealment';
+			this.setInfo();
 		}
 		else {
-			const Unit = tile.unit.type;
-			msg += tile.unit.party.name + ' ' + Unit.name;
-			if(tile.unit.origin)
-				msg += ', moved';
+			if(!tile.unit || (this.selUnit == tile.unit))
+				this.deselectUnit();
 			else
-				msg += ', moves '+Unit.move;
-			msg+= ', attack '+Unit.attack+', defense '+Unit.defend;
-			if(Unit.support)
-				msg += ', support '+Unit.support + ', range '+Unit.range;
+				this.selectUnit(tile.unit);
+			this.updateCursorInfo();
 		}
-
-		this.displayStatus(msg);
 		this.draw(true);
 	},
 
 	viewZoomStep: function(delta, centerX, centerY) {
 		var i, scales = this.settings.scales;
 		for(i=0; i<scales.length; ++i)
-			if(this.cellMetrics.h==scales[i])
+			if(this.vp.cellMetrics.h==scales[i])
 				break;
-		var scale = this.cellMetrics.h;
+		var scale = this.vp.cellMetrics.h;
 		if(delta<0 && i>0)
 			scale = scales[i-1];
 		else if(delta>0 && i+1<scales.length)
 			scale = scales[i+1];
-		if(this.cellMetrics.h != scale) {
-			var factor = scale / this.cellMetrics.h;
+		if(this.vp.cellMetrics.h != scale) {
+			var factor = scale / this.vp.cellMetrics.h;
 			if(centerX===undefined)
 				centerX = this.background.width/2;
 			if(centerY===undefined)
 				centerY = this.background.height/2;
 			this.viewZoom(factor, centerX, centerY);
+			this.emit('fullDraw');
 		}
 	},
 
 	viewZoom: function(factor, centerX, centerY, deltaX, deltaY) {
 		var scales = this.settings.scales;
-		var scale = factor * this.cellMetrics.h;
+		var scale = factor * this.vp.cellMetrics.h;
 		var scaleMin = scales[0], scaleMax = scales[scales.length-1];
 		if(scale < scaleMin)
 			scale = scales[0];
 		else if(scale > scaleMax)
 			scale = scaleMax;
-		if(scale == this.cellMetrics.h)
+		if(scale == this.vp.cellMetrics.h)
 			return;
 		var dx = centerX * (factor-1.0) + (deltaX!==undefined ? deltaX : 0);
 		var dy = centerY * (factor-1.0) + (deltaY!==undefined ? deltaY : 0);
-		this.cellMetrics = MapHex.calculateCellMetrics(scale);
+		this.vp.cellMetrics = MapHex.calculateCellMetrics(scale);
 		this.resize(true);
 		this.viewPan(dx, dy);
 	},
 
 	viewPan: function(dX, dY) {
 		var vp = this.vp;
-		var cm = this.cellMetrics;
+		var cm = this.vp.cellMetrics;
 		vp.offsetX -= dX;
 		vp.offsetY -= dY;
 		vp.x -= (vp.offsetX>=0) ?
@@ -545,6 +613,43 @@ client = {
 			&& pos.y >= this.vp.y + delta
 			&& pos.x < this.vp.x + this.vp.width - delta
 			&& pos.y < this.vp.y + this.vp.height - delta;
+	},
+
+	updateCursorInfo: function() {
+		let tile = this.mapView.get(this.cursor.x, this.cursor.y);
+		if(!tile)
+			return;
+
+		let msg = '('+this.cursor.x+','+this.cursor.y+') ';
+		let info;
+
+		if(!tile.unit) {
+			if(tile.party)
+				msg += MD.Party[tile.party].name+' ';
+			const Terrain = MD.Terrain[tile.terrain];
+			msg += Terrain.name;
+
+			info = '<h1>'+Terrain.name+'</h1>'
+				+ '<p>defense: &times;'+ Terrain.defend+'</p>'
+				+ '<p>movement: '+ Terrain.move+'</p>'
+				+ '<p>concealment: '+ Terrain.concealment+'</p>';
+		}
+		else {
+			const Unit = tile.unit.type;
+			msg += tile.unit.party.name + ' ' + Unit.name;
+			if(tile.unit.origin)
+				msg += ', moved';
+
+			info = '<h1>'+Unit.name+'</h1>'
+				+ '<p>attack: '+ Unit.attack+'</p>'
+				+ '<p>defense: '+ Unit.defend+'</p>'
+				+ '<p>moves: '+ Unit.move+'</p>'
+				+ '<p>support: +'+ Unit.support+'</p>'
+				+ '<p>supp. range: '+ Unit.range+'</p>';
+		}
+
+		this.displayStatus(msg);
+		this.setInfo(info);
 	},
 
 	selectUnit: function(unit) {
@@ -674,9 +779,9 @@ client = {
 
 		var x = unit.x-this.vp.x, y = unit.y-this.vp.y;
 		var w, h;
-		var w = h = this.cellMetrics.r;
+		var w = h = this.vp.cellMetrics.r;
 		var opacity = 1.0;
-		var offsetOdd = (unit.x%2) ? 0.5*this.cellMetrics.h : 0;
+		var offsetOdd = (unit.x%2) ? 0.5*this.vp.cellMetrics.h : 0;
 
 		if(unit.animation && (this.state=='input' || this.state=='replay')) {
 			var transf = { x:0.0, y:0.0, r:0.0, scx:1.0, scy:1.0, opacity:1.0 };
@@ -688,8 +793,8 @@ client = {
 			opacity = transf.opacity;
 		}
 
-		x = x*this.cellMetrics.w + this.vp.offsetX - w/2;
-		y = y*this.cellMetrics.h + this.vp.offsetY + offsetOdd - h/2;
+		x = x*this.vp.cellMetrics.w + this.vp.offsetX - w/2;
+		y = y*this.vp.cellMetrics.h + this.vp.offsetY + offsetOdd - h/2;
 
 		dc.save();
 		dc.globalAlpha = opacity;
@@ -701,22 +806,16 @@ client = {
 	},
 
 	drawSelTile: function(dc, tile) {
-		var x = tile.x;
-		var y = tile.y;
-		var offsetY = this.vp.offsetY;
-		if(x%2)
-			offsetY+=0.5*this.cellMetrics.h;
-		var radius = this.cellMetrics.r/6;
-		dc.circle((x-this.vp.x)*this.cellMetrics.w+this.vp.offsetX,
-			(y-this.vp.y)*this.cellMetrics.h+offsetY, radius,
-			{ fillStyle:tile.fillStyle ? tile.fillStyle : 'rgba(0,0,0, 0.33)' });
+		var pos = this.vp.mapToScreen(tile);
+		var radius = this.vp.cellMetrics.r/6;
+		dc.circle(pos.x, pos.y, radius, { fillStyle:tile.fillStyle ? tile.fillStyle : 'rgba(0,0,0, 0.33)' });
 	},
 
 	drawTile: function(x, y) {
 		let viewport = { x:x, y:y, width:1, height:1,
-			offsetX:this.vp.offsetX + (x-this.vp.x)*this.cellMetrics.w,
-			offsetY:this.vp.offsetY + (y-this.vp.y)*this.cellMetrics.h };
-		MapHex.draw(this.background, this.mapView, viewport, this.cellMetrics);
+			offsetX:this.vp.offsetX + (x-this.vp.x)*this.vp.cellMetrics.w,
+			offsetY:this.vp.offsetY + (y-this.vp.y)*this.vp.cellMetrics.h };
+		MapHex.draw(this.background, this.mapView, viewport, this.vp.cellMetrics);
 	},
 
 	draw: function() {
@@ -730,7 +829,7 @@ client = {
 				this.drawTile(this.redrawMap.x, this.redrawMap.y);
 			else {
 				this.background.dc.clearRect(0, 0, this.background.width, this.background.height);
-				MapHex.draw(this.background, this.mapView, vp, this.cellMetrics, this.fov, fastMode);
+				MapHex.draw(this.background, this.mapView, vp, this.vp.cellMetrics, this.fov, fastMode);
 			}
 			this.redrawMap = false;
 		}
@@ -739,32 +838,29 @@ client = {
 
 		// foreground:
 		dc = this.foreground.dc;
-		let ownUnits = [];
+		let foregroundUnits = [];
 		for(var id in this.units) {
 			var unit = this.units[id];
 			if(this.isInsideViewport(unit)) {
-				if(unit.party.id == this.party)
-					ownUnits.push(unit);
+				if(unit.party.id == this.foregroundParty)
+					foregroundUnits.push(unit);
 				else
 					this.drawUnit(dc, unit);
 			}
 		}
-		for(let i=ownUnits.length; i-->0; )
-			this.drawUnit(dc, ownUnits[i]);
+		for(let i=foregroundUnits.length; i-->0; )
+			this.drawUnit(dc, foregroundUnits[i]);
 
 		if(this.selection)
 			for(var i=this.selection.length; i--; )
 				this.drawSelTile(dc, this.selection[i]);
 
 		if(this.cursor && this.isInsideViewport(this.cursor) && (!this.selUnit || this.cursor.x!=this.selUnit.x || this.cursor.y!=this.selUnit.y)) {
-			var x = this.cursor.x-vp.x;
-			var y = this.cursor.y-vp.y;
-			var offsetY = vp.offsetY + ((this.cursor.x%2) ? 0.5*this.cellMetrics.h : 0);
-			var cx=x*this.cellMetrics.w+vp.offsetX, cy= y*this.cellMetrics.h+offsetY;
-			var lineWidth = this.cellMetrics.r/8;
-			var r = 0.5*this.cellMetrics.h-0.5*lineWidth;
+			var center = this.vp.mapToScreen(this.cursor);
+			var lineWidth = this.vp.cellMetrics.r/8;
+			var r = 0.5*this.vp.cellMetrics.h-0.5*lineWidth;
 			var deltaR = 0.07*r*Math.sin(this.time*1.5*Math.PI);
-			dc.circle(cx, cy, r+deltaR, { strokeStyle: 'white', lineWidth:lineWidth });
+			dc.circle(center.x, center.y, r+deltaR, { strokeStyle: 'white', lineWidth:lineWidth });
 		}
 	},
 
@@ -847,7 +943,7 @@ client = {
 		}
 		this.consistencyState.turn =this.turn = newTurn;
 		if(this.turn>1)
-			this.hideJoinCredentials();
+			this.hideMenuItem('joinCredentials');
 		this.numPartiesMax = data.numPartiesMax;
 		this.restoreOrders();
 
@@ -1034,7 +1130,7 @@ client = {
 			for(let id in this.parties)
 				++numParties;
 			if(numParties>=this.numPartiesMax)
-				this.hideJoinCredentials();
+				this.hideMenuItem('joinCredentials');
 		}
 		console.log('presence event type:', evt.type, 'party:', evt.party);
 	},
@@ -1079,10 +1175,10 @@ client = {
 					else
 						msg += ' '+MD.Party[id].name;
 				}
-				if(numParties+1 < this.numPartiesMax)
+				if(numParties+1 < this.numPartiesMax && !this.isDemo && !this.isTutorial)
 					msg += ' &nbsp; join id: '+this.credentials.match;
 				else
-					this.hideJoinCredentials();
+					this.hideMenuItem('joinCredentials');
 			}
 			this.displayStatus(msg);
 			break;
@@ -1099,6 +1195,7 @@ client = {
 
 		case 'replay':
 			this.cursor = null;
+			this.setInfo();
 			if(this.isDemo)
 				this.btnMain.setMode('exit');
 			else
@@ -1116,9 +1213,7 @@ client = {
 				winners:params.winners, loosers:params.loosers, capitulated:params.capitulated, stats:params.stats };
 
 			this.btnMain.setMode('exit');
-			this.hideJoinCredentials();
-			document.querySelector('#main_menu > li[data-id="suspend"]').style.display = 'none';
-			document.querySelector('#main_menu > li[data-id="capitulate"]').style.display = 'none';
+			this.hideMenuItem('joinCredentials').hideMenuItem('suspend').hideMenuItem('capitulate');
 			this.displayStatus('GAME OVER.');
 			break;
 		}
@@ -1177,8 +1272,11 @@ client = {
 		return ai;
 	},
 
-	hideJoinCredentials: function() {
-		document.querySelector('#main_menu > li[data-id="joinCredentials"]').style.display = 'none';
+	hideMenuItem: function(dataId) {
+		let item = document.querySelector('#main_menu > li[data-id="'+dataId+'"]');
+		if(item)
+			item.style.display = 'none';
+		return this;
 	},
 
 	displayStatus: function(msg) {

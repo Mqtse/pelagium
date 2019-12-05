@@ -334,10 +334,12 @@ app = {
 	},
 	//--- specific functionality ---
 	init: function(params) {
-		if(localStorage && localStorage.pelagium) {
+		if(localStorage && localStorage.pelagium) try {
 			var settings = JSON.parse(localStorage.pelagium);
 			if(settings.resume)
 			 	document.getElementById("resume_id").value = settings.resume;
+		} catch(err) {
+			console.error(err);
 		}
 		http.get('/pelagium/scenarios', null, function(data, code) {
 			if(code!=200)
@@ -427,6 +429,9 @@ app = {
 			parties[id] = (id===ownId) ? 0 : 1; // AI
 		let params = { cmd:'demo', scenario:scenId, parties:parties };
 		this.openUrl('/static/pelagium.html', params);
+	},
+	tutorial: function() {
+		this.openUrl('/static/tutorial.html');
 	},
 	configure: function(scenId) {
 		const switchClassId = (elem, classId='selected')=>{
@@ -616,6 +621,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 				><li class="l10n" onclick="app.screen('resume');">resume</li
 				><li class="l10n" onclick="app.screen('join');">join game</li
 				><li class="l10n" onclick="app.demo();">demo</li
+				><li class="l10n" onclick="app.tutorial();">tutorial</li
 				><li class="l10n" onclick="app.screen('help');">about&hellip;</li
 			></ul
 

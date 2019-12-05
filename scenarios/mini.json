@@ -1,0 +1,18 @@
+{
+	"visibility":"hidden",
+	"seed":"mini",
+	"pageSz":20,
+	"tiles":[
+		{"x":0,"y":0, "terrain":0}
+	],
+	"starts":{ "1":0, "2":3 },
+	"units": [
+		{"type":"inf", "party":1, "x":5, "y":5},
+		{"type":"art", "party":1, "x":5, "y":6},
+		{"type":"kv", "party":1, "x":6, "y":7},
+		{"type":"inf", "party":1, "x":7, "y":6},
+		{"type":"inf", "party":2, "x":9, "y":7},
+		{"type":"kv", "party":2, "x":8, "y":9}
+	]
+
+}

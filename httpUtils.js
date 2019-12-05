@@ -7,6 +7,45 @@ const fs = require('fs');
 let jsonLenMax = 1024*100;
 let bodyLenMax = 1024*500;
 
+function inferMime(fname) {
+	if(fname.endsWith('manifest.json'))
+		return 'application/manifest+json';
+
+	switch(fname.substr(fname.lastIndexOf('.')+1).toLowerCase()) {
+	case 'js':
+		return 'application/javascript';
+	case 'json':
+		return 'application/json';
+	case 'html':
+		return 'text/html';
+	case 'txt':
+		return 'text/plain';
+	case 'css':
+		return 'text/css';
+	case 'png':
+		return 'image/png';
+	case 'jpg':
+		return 'image/jpg';
+	case 'gif':
+		return 'image/gif';
+	case 'ico':
+		return 'image/x-icon';
+	case 'svg':
+		return 'image/svg+xml';
+	case 'woff':
+		return 'font/woff';
+	case 'woff2':
+		return 'font/woff2';
+	case 'mp3':
+		return 'audio/mpeg';
+	case 'appcache':
+		return 'text/cache-manifest';
+	default:
+		console.warn('mime-type unknown for ',fname);
+		return 'text/plain';
+	}
+}
+
 function respond(resp, code, body, mime) {
 	if(Array.isArray(code)) {
 		body = code[1];
@@ -35,45 +74,8 @@ function respond(resp, code, body, mime) {
 }
 
 function serveStatic(resp, path, basePath) {
-	const inferMime = function(fname) {
-		if(fname.endsWith('manifest.json'))
-			return 'application/manifest+json';
-
-		switch(fname.substr(fname.lastIndexOf('.')+1).toLowerCase()) {
-		case 'js':
-			return 'application/javascript';
-		case 'json':
-			return 'application/json';
-		case 'html':
-			return 'text/html';
-		case 'txt':
-			return 'text/plain';
-		case 'css':
-			return 'text/css';
-		case 'png':
-			return 'image/png';
-		case 'jpg':
-			return 'image/jpg';
-		case 'gif':
-			return 'image/gif';
-		case 'ico':
-			return 'image/x-icon';
-		case 'svg':
-			return 'image/svg+xml';
-		case 'woff':
-			return 'font/woff';
-		case 'woff2':
-			return 'font/woff2';
-		case 'appcache':
-			return 'text/cache-manifest';
-		default:
-			console.warn('mime-type unknown for ',fname);
-			return 'text/plain';
-		}
-	}
-
 	if(path.indexOf('..')>=0)
-		return respond(resp,403, 'Forbidden');
+		return respond(resp, 403, 'Forbidden');
 	if(!basePath)
 		basePath = __dirname;
 	fs.readFile(basePath + '/'+path, (err,data)=>{
@@ -86,6 +88,25 @@ function serveStatic(resp, path, basePath) {
 			headers['Cache-Control'] = 'public, max-age=31536000'; // 1year
 		resp.writeHead(200, headers);
 		resp.end(data);
+	});
+	return true;
+}
+
+function streamMedia(resp, path, basePath) {
+	if(path.indexOf('..')>=0)
+		return respond(resp,403, 'Forbidden');
+	if(!basePath)
+		basePath = __dirname;
+	fs.open(basePath + '/'+path, 'r', (err, fd)=>{
+		if(err)
+			return respond(resp, 404, JSON.stringify(err));
+
+		let mime = inferMime(path);
+		resp.setHeader('Content-Type', mime);
+		resp.setHeader('Transfer-Encoding', 'chunked');
+
+		let fstream = fs.createReadStream('',{fd:fd});
+		fstream.pipe(resp);
 	});
 	return true;
 }
@@ -234,6 +255,7 @@ function onShutdown(callback) {
 module.exports = {
 	respond: respond,
 	serveStatic: serveStatic,
+	streamMedia: streamMedia,
 	createServer: createServer,
 	redirect: redirect,
 	parseArgs: parseArgs,

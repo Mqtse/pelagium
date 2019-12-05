@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<HTML>
+	<head>
+		<title>pelagium tutorial</title>
+		<meta charset="ISO-8859-15">
+		<meta name="author" content="Gerald Franz"/>
+		<meta name="description" content="turn-based online strategy game"/>
+		<meta name="keywords" content="water world,HTML5,tbs"/>
+
+		<meta name="viewport" content="user-scalable=no, width=device-width" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+		<meta name="theme-color" content="#cadacf"/>
+		<link rel="manifest" href="/static/manifest.json" />
+		<link rel="apple-touch-icon" sizes="256x256" href="/static/icon_island256.png" />
+		<link rel="shortcut icon" href="/static/favicon.ico" />
+		<link href='/static/fonts.css' rel='stylesheet' type='text/css'>
+		<link href='/static/pelagium.css' rel='stylesheet' type='text/css'>
+
+		<style type="text/css">
+#tut_ovl {
+	position:absolute;
+	box-sizing: border-box;
+	width: 320px;
+	height:115px;
+	top:0;
+	left:calc(50% - 160px);
+	z-index: 3;
+	padding:0.5em;
+	background:rgba(0,0,0,0.33);
+	-webkit-backdrop-filter: blur(4px);
+	backdrop-filter: blur(4px);
+	border-bottom-left-radius:0.5em;
+	border-bottom-right-radius:0.5em;
+	font-weight: bold;
+	text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+}
+#tut_caption {
+	margin: 0 0.5em;
+	line-height:1.2em;
+	min-height:3.6em;
+}
+#tut_buttons {
+	position: absolute;
+	bottom:0;
+	right:0;
+	padding: 0 8px 8px;
+}
+#tut_ovl button {
+	width: 40px;
+	height: 40px;
+	border: 0px;
+	padding:8px;
+	background:none;
+	opacity:0.66;
+}
+#tut_ovl button:hover {
+	opacity:1.0;
+	cursor:pointer;
+}
+
+.speech-bubble-right,
+.speech-bubble-right-bottom {
+	display:flex;
+	align-items:center;
+	position: fixed;
+	height:40px;
+	margin-right:40px;
+	padding-left: 0.5em;
+	background: rgba(0,0,0,0.33);
+	-webkit-backdrop-filter: blur(4px);
+	backdrop-filter: blur(4px);
+}
+.speech-bubble-right-bottom {
+	margin-top: -40px;
+}
+.speech-bubble-right:after,
+.speech-bubble-right-bottom:after {
+	content: '';
+	position: absolute;
+	right: 0;
+	top: 0%;
+	width: 0;
+	height: 0;
+	margin-right: -40px;
+	border: 40px solid transparent;
+	border-left-color: rgba(0,0,0,0.33);
+	border-right: 0;
+	border-top: 0;
+	/*-webkit-backdrop-filter: blur(4px); transparency shape currently broken on iOS */
+	backdrop-filter: blur(4px);
+}
+.speech-bubble-right-bottom:after {
+	border: 40px solid transparent;
+	border-left-color: rgba(0,0,0,0.33);
+	border-right: 0;
+	border-bottom: 0;
+}
+.speech-bubble-left {
+	display:flex;
+	align-items:center;
+	position: fixed;
+	height:40px;
+	margin-left:40px;
+	padding-right: 0.5em;
+	background: rgba(0,0,0,0.33);
+	-webkit-backdrop-filter: blur(4px);
+	backdrop-filter: blur(4px);
+}
+.speech-bubble-left:before {
+	content: '';
+	position: absolute;
+	left: 0;
+	top: 0%;
+	width: 0;
+	height: 0;
+	border: 40px solid transparent;
+	margin-left: -40px;
+	border-right-color: rgba(0,0,0,0.33);
+	border-left: 0;
+	border-top: 0;
+	/*-webkit-backdrop-filter: blur(4px); transparency shape currently broken on iOS */
+	backdrop-filter: blur(4px);
+}
+
+.arrow-pointer {
+	height: 1em;
+	background: rgba(0,30,255,0.33);
+	margin-top:-0.5em;
+	position:fixed;
+}
+.arrow-pointer:after {
+	content: '';
+	position: absolute;
+	right: -1.5em;
+	top: -0.5em;
+	width: 0; 
+	height: 0; 
+	border-top: 1em solid transparent;
+	border-bottom: 1em solid transparent;
+	border-left: 1.5em solid rgba(0,30,255,0.33);
+}
+		</style>
+
+		<script type="text/javascript">
+window.onerror=function(msg, url, linenumber) {
+	alert('Error message: '+msg+'\nURL: '+url+'\nLine Number: '+linenumber);
+}
+sessionStorage.setItem('eludi_paramsRequest', JSON.stringify({ cmd:'tutorial', scenario:'mini' }));
+		</script>
+		<script type="text/javascript" src="/static/color.js"></script>
+		<script type="text/javascript" src="/static/seedrandom.js"></script>
+		<script type="text/javascript" src="/static/masterdata.js"></script>
+		<script type="text/javascript" src="/static/infra.js"></script>
+		<script type="text/javascript" src="/static/shared.js"></script>
+		<script type="text/javascript" src="/static/sim_proxy.js"></script>
+		<script type="text/javascript" src="/static/renderer.js"></script>
+		<script type="text/javascript" src="/static/client.js"></script>
+		<script type="text/javascript" src="/static/tutorial.js"></script>
+	</head>
+
+	<body>
+		<div id="mapView" style="position:relative;"
+			><canvas id="background" style="z-index:0;"></canvas
+			><canvas id="foreground" style="z-index:1;"></canvas
+
+			><div id="tut_ovl" class="noselect"
+				><div id="tut_map"></div
+				><div id="tut_caption">&hellip;</div
+				><div id="tut_buttons"
+					><button id="tut_bwd" data-id="tutorial_bwd" title="previous step"
+						><svg height="24" width="24" style="fill:white;stroke:none;"
+							><path d="m 24,18 h -10 v 6 l -14,-12 14,-12 v 6 H 24 z" /></svg
+					></button
+					><button id="tut_fwd" data-id="tutorial_fwd" title="next step"
+						><svg height="24" width="24" style="fill:white;stroke:none;"
+							><path d="m 0,18 h 10 v 6 l 14,-12 -14,-12 v 6 H 0 z" /></svg
+					></button
+				></div
+			></div
+
+			><div id="controls" class="noselect"
+				><button id="btn_menu" data-id="toggleMenu" title="main menu"
+					><svg height="20" width="20" style="fill:white;stroke:none;"
+						><rect y="1" width="20" height="3"></rect><rect y="8" width="20" height="3"></rect><rect y="15" width="20" height="3"></rect></svg
+				></button
+				><span id="status">messages are displayed here.</span
+				><div id="toolbars"
+					><ul id="toolbar_main" class="toolbar"
+						><li data-id="fwd"><svg><path style="fill:white;stroke:none;" d="M 6 4 l 0 16 l 16 -8 z"></path></svg></li
+						><li data-id="pause"><svg style="fill:white;stroke:none;"><rect x="4" y="4" width="6" height="16"></rect><rect x="14" y="4" width="6" height="16"></rect></svg></li
+						><li data-id="spinner"><div></div></li
+						><li data-id="exit"><svg><path style="fill:none;stroke:white;stroke-width:4" d="M 4 4 l 16 16 m 0 -16 l -16 16"></path></svg></li
+					></ul
+					><ul id="toolbar_production" class="toolbar"></ul
+				></div
+			></div
+
+			><div id="menus" style="display:none;" class="noselect"
+				><h1 id="title">pelagium</h1
+				><ul id="main_menu"
+					><li data-id="exit" class="l10n">exit tutorial</li
+					><li data-id="fullscreen" class="l10n">toggle fullscreen</li
+					><li id="toggleInfo" data-id="toggleInfo" class="l10n"></li
+				></ul
+			></div
+			><div id="info_panel" style="display:none;" class="noselect"></div
+			><div id="popup" style="display:none;"><div
+				><div></div
+				><ul class="noselect"></ul
+			></div></div
+		></div>
+	</body>
+</html>

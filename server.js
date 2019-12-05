@@ -306,6 +306,9 @@ let server = httpUtils.createServer(cfg, (req, resp, url)=>{
 	case 'labs':
 		if(url.path.length==2)
 			return httpUtils.serveStatic(resp, url.path[1], __dirname+'/'+url.path[0]);
+	case 'media':
+		if(url.path.length==2)
+			return httpUtils.streamMedia(resp, url.path[1], __dirname+'/'+url.path[0]);
 	case 'info':
 		return server.usage(req, resp);
 	case 'serviceworker.js':
