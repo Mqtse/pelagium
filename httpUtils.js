@@ -80,7 +80,7 @@ function serveStatic(resp, path, basePath) {
 		basePath = __dirname;
 	fs.readFile(basePath + '/'+path, (err,data)=>{
 		if (err)
-			return respond(resp, 404, JSON.stringify(err));
+			return respond(resp, 404, err);
 
 		let mime = inferMime(path);
 		let headers = { 'Content-Type':mime };
@@ -99,7 +99,7 @@ function streamMedia(resp, path, basePath) {
 		basePath = __dirname;
 	fs.open(basePath + '/'+path, 'r', (err, fd)=>{
 		if(err)
-			return respond(resp, 404, JSON.stringify(err));
+			return respond(resp, 404, err);
 
 		let mime = inferMime(path);
 		resp.setHeader('Content-Type', mime);

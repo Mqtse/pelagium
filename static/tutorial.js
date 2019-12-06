@@ -78,7 +78,7 @@
 			(immediate)=>{
 				self.caption("Welcome to one of the scenic islands of pelagium!");
 				if(!immediate)
-					client.viewCenter(10,10);
+					client.viewCenter(10,8);
 				//self.at(2.0, ()=>{ client.viewZoom(1.5, 10,10); });
 			},
 			(immediate)=>{
@@ -88,13 +88,15 @@
 						{x:6, y:6, mapSpace:true, align:'right'},
 						{x:8, y:11, mapSpace:true, align:'right'},
 						{x:11, y:5, mapSpace:true, align:'left'},
-						{x:12,y:12, mapSpace:true, align:'left'}
+						{x:12,y:12, mapSpace:true, align:'right'}
 					].forEach((params)=>{
 						self.tooltip(params.x, params.y, "objective", params);
 					});
 				});
 			},
 			()=>{
+				if(window.innerHeight>window.innerWidth)
+					client.viewCenter(8,8);
 				self.caption("Settlements under your party's control allow you to train new units.");
 				self.tooltip(6,6, "settlement<br/>(yours)", {mapSpace:true, align:'right'});
 			},
@@ -103,26 +105,26 @@
 				client.handleMapInput('click', 6, 6);
 				self.caption("There are three different types of units: infrantry, cavalry, artillery.");
 				self.at(immediate ? 0.0 : 1.0, ()=>{
-					self.tooltip(window.innerWidth-64,window.innerHeight-152, 'infantry', {align:'right'});
+					self.tooltip(window.innerWidth-64,window.innerHeight-152, 'infantry', {align:'right-bottom'});
 				});
 				self.at(immediate ? 0.0 : 1.5, ()=>{
-					self.tooltip(window.innerWidth-64,window.innerHeight-96, 'cavalry', {align:'right'});
+					self.tooltip(window.innerWidth-64,window.innerHeight-96, 'cavalry', {align:'right-bottom'});
 				});
 				self.at(immediate ? 0.0 : 2.0, ()=>{
-					self.tooltip(window.innerWidth-64,window.innerHeight-48, 'artillery', {align:'right'});
+					self.tooltip(window.innerWidth-64,window.innerHeight-48, 'artillery', {align:'right-bottom'});
 				});
 			},
 			()=>{
 				self.caption("Each unit types has its particular strengths and weaknesses.");
 				client.handleMapInput('click', 5, 5);
-				self.tooltip(5,5, "infantry<br/>(strong defense)", {mapSpace:true, align:'right', duration:2});
+				self.tooltip(5,5, "infantry<br/>(+defense)", {mapSpace:true, align:'right', duration:2});
 				self.at(2.0, ()=>{ 
 					client.handleMapInput('click', 5, 6);
-					self.tooltip(5,6, "artillery<br/>(strong support)", {mapSpace:true, align:'right', duration:2});
+					self.tooltip(5,6, "artillery<br/>(+support)", {mapSpace:true, align:'right', duration:2});
 				});
 				self.at(4.0, ()=>{
 					client.handleMapInput('click', 6, 7);
-					self.tooltip(6,7, "cavalry<br/>(strong attack)", {mapSpace:true, align:'left', duration:2});
+					self.tooltip(6,7, "cavalry<br/>(+attack)", {mapSpace:true, align:'left', duration:2});
 				});
 				self.at(6.0, ()=>{ self.step(0); });
 			},
@@ -130,11 +132,12 @@
 				self.caption(tapOrClick+" on one of your units lets you see its properties and field of movement.");
 				client.deselectUnit();
 				client.handleMapInput('click', 6, 7);
+				self.tooltip(6, 7, 'selected</br>unit', {mapSpace:true, align:'left'});
 				self.at(immediate ? 0.0 : 1.0, ()=>{
-					self.tooltip(5, 8, 'reachable tiles</br>(dotted)', {mapSpace:true, align:'right'});
+					self.tooltip(6, 9, 'dotted =</br>reachable', {mapSpace:true, align:'right'});
 				});
 				self.at(immediate ? 0.0 : 2.0, ()=>{
-					self.tooltip(160, window.innerHeight-112, 'unit properties', {align:'left'});
+					self.tooltip(160, window.innerHeight-112, 'unit<br/>properties', {align:'left'});
 				});
 			},
 			()=>{
@@ -167,6 +170,7 @@
 			()=>{
 				client.handleUIEvent({type:'fwd'});
 				self.caption("As soon as all players have given their orders, the turn will be evaluated.");
+				self.at(4, ()=>{ self.step(); });
 			},
 			()=>{
 				client.handleUIEvent({type:'spinner'});
@@ -184,10 +188,10 @@
 			},
 			()=>{
 				self.caption("Nearby units of the same party may support their comrades.");
-				self.tooltip(7, 8, 'support (blue)', {mapSpace:true, align:'right', duration:2});
-				self.tooltip(6, 7, 'range support (blue)', {mapSpace:true, align:'right', duration:2});
+				self.tooltip(7, 8, 'support<br/>(blue)', {mapSpace:true, align:'right', duration:2});
+				self.tooltip(6, 7, 'support<br/>(blue)', {mapSpace:true, align:'right', duration:2});
 				self.at(2.0, ()=>{
-					self.tooltip(9, 7, 'support (red)', {mapSpace:true, align:'left'});
+					self.tooltip(9, 7, 'support<br/>(red)', {mapSpace:true, align:'left'});
 				});
 				self.at(4.0, ()=>{ self.step(0); });
 			},
@@ -196,26 +200,28 @@
 				client.deselectUnit();
 				client.handleMapInput('click', 6, 8);
 				self.tooltip(6, 8, 'plain', {mapSpace:true, align:'right', duration:2});
-				self.tooltip(192, window.innerHeight-105, 'terrain properties', {align:'left'});
+				self.tooltip(192, window.innerHeight-105, 'terrain<br/>properties', {align:'left'});
 				
 				self.at(2, ()=>{
 					client.deselectUnit();
 					client.handleMapInput('click', 9, 8);
-					self.tooltip(9, 8, 'forest', {mapSpace:true, align:'left', duration:2});
+					self.tooltip(9, 8, 'forest<br/>(+defense)', {mapSpace:true, align:'left', duration:2});
 				});
 				self.at(4, ()=>{
 					client.deselectUnit();
 					client.handleMapInput('click', 8, 11);
-					self.tooltip(8, 11, 'settlement', {mapSpace:true, align:'right'});
+					self.tooltip(8, 11, 'settlement<br/>(++defense)', {mapSpace:true, align:'right'});
 				});
 				self.at(6, ()=>{ self.step(0); });
 			},
 			()=>{
 				self.caption("The engagement ends with one unit involved either retreating or surrendering.");
+				if(window.innerHeight>window.innerWidth)
+					client.viewCenter(11,8);
 				if(enemy)
 					client.moveUnit(enemy, 9,8);
 				self.at(1, ()=>{
-					self.tooltip(9, 8, 'opponent retreats', {mapSpace:true, align:'left'});
+					self.tooltip(9, 8, 'opponent<br/>retreats', {mapSpace:true, align:'left'});
 				});
 			},
 			(immediate)=>{
@@ -224,15 +230,15 @@
 
 				self.at(immediate ? 0.0 : 1.0, ()=>{
 					self.arrow(6,6, 8,8, {mapSpace:true});
-					self.tooltip(8, 8, 'step 1: defend', {mapSpace:true, align:'left'});
+					self.tooltip(8, 8, 'step 1:<br/>defend', {mapSpace:true, align:'left'});
 				});
 				self.at(immediate ? 0.0 : 2.0, ()=>{
 					self.arrow(8,8, 8,11, {mapSpace:true});
-					self.tooltip(8, 11, 'step 2: secure', {mapSpace:true, align:'right'});
+					self.tooltip(8, 11, 'step 2:<br/>secure', {mapSpace:true, align:'right'});
 				});
 				self.at(immediate ? 0.0 : 3.0, ()=>{
 					self.arrow(8,11, 12,12, {mapSpace:true});
-					self.tooltip(12, 12, 'step 3: victory!', {mapSpace:true, align:'left'});
+					self.tooltip(12, 12, 'step 3:<br/>victory!', {mapSpace:true, align:'left'});
 				});
 			},
 			()=>{
@@ -262,7 +268,6 @@
 		this.currStep = 0;
 		this.timeouts = [];
 		document.querySelector('#tut_fwd').addEventListener("click", ()=>{ this.step(+1); });
-		document.querySelector('#tut_bwd').addEventListener("click", ()=>{ this.step(-1); });
 		client.on('*', (evt, data)=>{ this.handleClientEvent(evt, data); });
 		setInterval(()=>{ client.foregroundParty = (client.foregroundParty==0) ? 1 : 0; }, 1000);
 	

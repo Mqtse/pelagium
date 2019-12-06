@@ -43,6 +43,7 @@ function ServerPelagium(topLevelPath, persistence) {
 		let sim = new Sim(params);
 		if(sim.state!='running')
 			return [ 400, 'invalid match parameters' ];
+		console.log('new match', id, params);
 	
 		this.matches.set(id, { id:id, sim:sim, users:new Map() });
 		++this.totalMatchCount;

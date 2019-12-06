@@ -59,17 +59,23 @@
 	cursor:pointer;
 }
 
+.speech-bubble-left,
 .speech-bubble-right,
 .speech-bubble-right-bottom {
 	display:flex;
 	align-items:center;
 	position: fixed;
 	height:40px;
-	margin-right:40px;
-	padding-left: 0.5em;
 	background: rgba(0,0,0,0.33);
 	-webkit-backdrop-filter: blur(4px);
 	backdrop-filter: blur(4px);
+	font-size: 85%;
+}
+.speech-bubble-right,
+.speech-bubble-right-bottom {
+	text-align:right;
+	margin-right:40px;
+	padding-left: 0.5em;
 }
 .speech-bubble-right-bottom {
 	margin-top: -40px;
@@ -97,15 +103,8 @@
 	border-bottom: 0;
 }
 .speech-bubble-left {
-	display:flex;
-	align-items:center;
-	position: fixed;
-	height:40px;
 	margin-left:40px;
 	padding-right: 0.5em;
-	background: rgba(0,0,0,0.33);
-	-webkit-backdrop-filter: blur(4px);
-	backdrop-filter: blur(4px);
 }
 .speech-bubble-left:before {
 	content: '';
@@ -168,10 +167,6 @@ sessionStorage.setItem('eludi_paramsRequest', JSON.stringify({ cmd:'tutorial', s
 				><div id="tut_map"></div
 				><div id="tut_caption">&hellip;</div
 				><div id="tut_buttons"
-					><button id="tut_bwd" data-id="tutorial_bwd" title="previous step"
-						><svg height="24" width="24" style="fill:white;stroke:none;"
-							><path d="m 24,18 h -10 v 6 l -14,-12 14,-12 v 6 H 24 z" /></svg
-					></button
 					><button id="tut_fwd" data-id="tutorial_fwd" title="next step"
 						><svg height="24" width="24" style="fill:white;stroke:none;"
 							><path d="m 0,18 h 10 v 6 l 14,-12 -14,-12 v 6 H 0 z" /></svg

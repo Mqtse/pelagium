@@ -99,7 +99,7 @@ function Sim(params, callback) {
 
 		var turn = data.turn;
 		var orders = data.orders;
-		if(this.devMode && orders && orders.length==1 && orders[0].type=='forceEvaluate')
+		if((this.devMode || this.isTutorial) && orders && orders.length==1 && orders[0].type=='forceEvaluate')
 			return this._evaluateSimEvents();
 
 		if(!this._validateOrders(party, orders, turn)) {
@@ -668,6 +668,7 @@ function Sim(params, callback) {
 			turnStartTime: this.turnStartTime,
 			lastUpdateTime: this.lastUpdateTime,
 			simEventCounter: this.simEventCounter,
+			isTutorial: this.isTutorial,
 			map: this.map.serialize(),
 			numObjectivesVictory: this.numObjectivesVictory,
 
@@ -693,6 +694,7 @@ function Sim(params, callback) {
 		this.turnStartTime = data.turnStartTime;
 		this.lastUpdateTime = data.lastUpdateTime;
 		this.simEventCounter = data.simEventCounter;
+		this.isTutorial = data.isTutorial ? true : false;
 		this.map = new MapHex(data.map);
 		this.parties = data.parties;
 		this.numParties = 0;
@@ -770,6 +772,7 @@ function Sim(params, callback) {
 		this._initStats(scenario);
 		this.simEventCounter = 0;
 		this.turn = 1;
+		this.isTutorial = params.cmd=='tutorial';
 		this.turnStartTime = this.lastUpdateTime = new Date()/1000.0;
 		this.state = 'running';
 	}
