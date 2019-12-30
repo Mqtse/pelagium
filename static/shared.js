@@ -1,7 +1,11 @@
 if(typeof require !== 'undefined') {
-	Math.seedrandom = require('./seedrandom');
 	Color = require('./color');
 	MD = require('./masterdata');
+	createTerrain = require('../terrainGenerator');
+}
+else {
+	baseUrl = (location.origin ? location.origin : '') + '/pelagium';
+	createTerrain = null;
 }
 
 //------------------------------------------------------------------
@@ -135,6 +139,24 @@ function MatrixHex(width, height, value) {
 		var nb = this.polar2hex(pos, dir);
 		return this.isInside(nb) ? this.get(nb.x, nb.y) : null;
 	}
+	this.getRegion = function(resultMatrix, pos, regionId, cmpFunc) {
+		var open=[{x:pos.x,y:pos.y}], visited=[];
+		while(open.length) {
+			var node = open.pop();
+			if(visited[node.x+this.width*node.y])
+				continue;
+			visited[node.x+this.width*node.y]=true;
+			var value = this.get(node.x,node.y);
+			if(!cmpFunc(value))
+				continue;
+			resultMatrix.set(node.x, node.y, regionId);
+			for(var i=0; i<6; ++i) {
+				var nb = this.polar2hex(node, i);
+				if(this.isInside(nb))
+					open.push(nb);
+			}
+		}
+	}
 
 	this.serialize = function(rleEncode) {
 		var values = rleEncode ? MatrixHex.rleEncode(this.data) : this.data;
@@ -171,7 +193,7 @@ MatrixHex.rleEncode = function(data) {
 		}
 		else if(out[out.length-1]>=0)
 			out.push(-1); // start RLE encoding
-		else 
+		else
 			--out[out.length-1]; // increment RLE encoding
 	}
 	return out;
@@ -200,6 +222,7 @@ function MatrixSparse(defaultValue) {
 	this.isInside = function(pos) { return true; }
 	this.data = {};
 }
+
 
 //------------------------------------------------------------------
 function MapHex(params) {
@@ -250,264 +273,36 @@ function MapHex(params) {
 		return this.page.getPolar(x, y, dir, dist);
 	}
 
-	var self = this;
-	this.generators = {
-		islandInhabited: function(seed) {
-			var rnd = new Math.seedrandom(seed);
-			var page = new MatrixHex(self.pageSz, self.pageSz, MD.WATER);
-
-			var center = (page.width-1)/2;
-			var landProportionRim = 0.35;
-			var landProportionCenter = 0.65;
-			var border = 2;
-			var distRimSqr = Math.pow(page.width/4, 2);
-
-			// distribute objectives first:
-			var distObjectives = 6;
-			var width = page.width, height = page.height;
-
-			var objectives = [ ];
-			var nCols = Math.floor((width-4*border)/distObjectives);
-			var nRows = Math.floor((height-4*border)/distObjectives);
-			var distX = (width-4*border)/nCols;
-			var distY = (height-4*border)/nRows;
-			for(var i=0; i<nCols; ++i) for(var j=0; j<nRows; ++j) {
-				var offsetX, offsetY;
-				if((i==0&&j==0)||(i+1==nCols&&j+1==nRows)) { // corner
-					offsetX = Math.floor((distObjectives-2)/2);
-					offsetY = Math.floor((distObjectives-2)/2);
-				}
-				else {
-					offsetX = rnd()*(distObjectives-2);
-					offsetY = rnd()*(distObjectives-2);
-				}
-				var x=Math.round(2*border + i*distX + offsetX);
-				var y=Math.round(2*border+ j*distY + offsetY);
-				var obj = {x:x, y:y};
-				objectives.push(obj);
-				page.set(x,y, MD.OBJ);
-				var start = Math.floor(rnd()*3);
-				for(var dir=0; dir<3; ++dir) {
-					var neighbor = page.polar2hex(obj, (dir+start)%6);
-					page.set(neighbor.x,neighbor.y, MD.PLAIN);
-				}
-			}
-
-			// create land:
-			for(var x=border; x+border<page.width; ++x) for(var y=border; y+border<page.height; ++y) {
-				if(page.get(x,y))
-					continue;
-				var distCenterSqr = Math.pow(center-x, 2)+Math.pow(center-y, 2);
-				var landProportion = (distCenterSqr<distRimSqr) ? landProportionCenter : landProportionRim;
-				if(rnd()<landProportion)
-					page.set(x,y, (rnd()<0.5) ? MD.PLAIN : MD.FOREST);
-			}
-			page = self.smoothen(page);
-
-			// filter out isolated objectives:
-			for(var j=objectives.length; j--;) {
-				var obj = objectives[j];
-				var nb=null;
-				for(var i=0; i<6 && !nb; ++i)
-					nb = page.getNeighbor(obj, i);
-				if(nb)
-					continue;
-				objectives.splice(j,1);
-				page.set(obj.x, obj.y, MD.WATER);
-			}
-			page.objectives = objectives;
-			return page;
-		}
-	}
-	this.filterMinorObjectives = function(page) {
-		var objectives = page.objectives;
-		// create a matrix giving each inhabited island an individual id and determine maxIslandId:
-		var islands = new MatrixHex(page.width, page.height, 0);
-		var islandObjCount = [ ];
-		var islandObjCountMax = 0, maxIslandId=0;
-		var numIslands = 0;
-		for(var j=0; j<objectives.length; ++j) {
-			var obj = objectives[j];
-			var islandId =islands.get(obj.x,obj.y);
-			if(!islandId) {
-				islandId = ++numIslands;
-				this.markPageRegion(page, islands, obj, islandId, function(value) { return value>MD.WATER; });
-			}
-			if(!islandObjCount[islandId])
-				islandObjCount[islandId]=1;
-			else
-				++islandObjCount[islandId];
-			if(islandObjCount[islandId]>islandObjCountMax) {
-				islandObjCountMax = islandObjCount[islandId];
-				maxIslandId=islandId;
-			}
-		}
-		// filter out objectives on minor islands:
-		for(var j=objectives.length; j--;) {
-			var obj = objectives[j];
-			if(islands.get(obj.x,obj.y) == maxIslandId)
-				continue;
-			objectives.splice(j,1);
-			page.set(obj.x, obj.y, MD.PLAIN);
-		}
-	}
-	this.markPageRegion = function(page, resultMatrix, pos, regionId, cmpFunc) {
-		var open=[{x:pos.x,y:pos.y}], visited=[];
-		while(open.length) {
-			var node = open.pop();
-			if(visited[node.x+page.width*node.y])
-				continue;
-			visited[node.x+page.width*node.y]=true;
-			var value = page.get(node.x,node.y);
-			if(!cmpFunc(value))
-				continue;
-			resultMatrix.set(node.x, node.y, regionId);
-			for(var i=0; i<6; ++i) {
-				var nb = page.polar2hex(node, i);
-				if(page.isInside(nb))
-					open.push(nb);
-			}
-		}
-	}
-	this.smoothen = function(map) {
-		var smoothingSteps=4;
-		var neighborCount = 3;
-		var newMap = null;
-		for(var step=0; step<smoothingSteps; ++step) {
-			newMap = new MatrixHex(map.width, map.height, 0);
-
-			for(var y=0; y<map.height; ++y) for(var x=0; x<map.width; ++x) {
-				var value = map.get(x,y);
-				if(value >= MD.OBJ) {
-					newMap.set(x,y, value);
-					continue;
-				}
-
-				var numNeighbors=0;
-				var numForests=0;
-				for(var i=0; i<6; ++i) {
-					var nb = map.getPolar(x,y, i);
-					if(nb)
-						++numNeighbors;
-					if(nb==MD.FOREST)
-						++numForests;
-				}
-
-				if(numNeighbors>6-neighborCount) {
-					var numPlains = numNeighbors-numForests;
-					var terrain = (numPlains>numForests) ? MD.PLAIN : (numForests>numPlains) ? MD.FOREST : ((x+y)%2) ? MD.PLAIN : MD.FOREST;
-					newMap.set(x,y, terrain);
-				}
-				else if(numNeighbors>=neighborCount)
-					newMap.set(x,y, map.get(x,y));
-			}
-			if(neighborCount>1)
-				--neighborCount;
-			map = newMap;
-		}
-		return newMap;
-	}
-
-	this.unifyMap = function(terrain, tiles, objectives, units) {
+	this.unifyMap = function(terrain, objectives, starts) {
 		var page = new MatrixHex(terrain.width, terrain.height, { terrain:0 });
 		for(var x=0; x<page.width; ++x) for(var y=0; y<page.height; ++y) {
 			var tile = page.get(x,y);
 			tile.terrain = terrain.get(x,y);
 		}
-		if(tiles) for(var i = tiles.length; i--; ) {
-			var tile = tiles[i];
-			page.set(tile.x, tile.y, tile);
-			if(tile.terrain == MD.OBJ && objectives) {
-				var obj = objectives[tile.id];
-				obj.x = tile.x;
-				obj.y = tile.y;
+
+		if(objectives) {
+			if(starts) for(var party in starts) {
+				var objId = starts[party];
+				if(objId<objectives.length)
+					objectives[objId].party = party;
 			}
-			delete tile.x;
-			delete tile.y;
-		}
 
-		if(objectives) for(var i=objectives.length; i--; ) {
-			var obj = objectives[i];
-			var tile = page.get(obj.x, obj.y);
-			tile.id = ('id' in obj) ? obj.id : i;
-			if(obj.party) {
-				tile.party = obj.party;
-				tile.production = obj.production || 'inf';
-				tile.progress = obj.progress || 0;
-			}
-		}
-
-		if(units)
-			units.forEach(function(unit) { this.unitAdd(unit, page); }, this);
-		return page;
-	}
-
-	this.createUnits = function(page, objectives, starts) {
-		params.units = [];
-		// determine minimum number of adjacent land tiles:
-		var numUnitsMax = 6;
-		for(var party in params.starts) {
-			var objId = params.starts[party];
-			if(objId>=objectives.length)
-				continue;
-			var obj = objectives[objId];
-			var numAdjacentLandTiles = 0;
-			for(var i=0; i<6; ++i)
-				if(page.getPolar(obj.x, obj.y, i).terrain > MD.WATER)
-					++numAdjacentLandTiles;
-			numUnitsMax = Math.min(numUnitsMax, numAdjacentLandTiles);
-		}
-		// place units round robin:
-		for(var party in params.starts) {
-			var objId = params.starts[party];
-			if(objId>=objectives.length)
-				continue;
-			var obj = objectives[objId];
-			var numUnits = 0;
-			for(var i=0; i<6 && numUnits<numUnitsMax; ++i) {
-				var pos = page.polar2hex(obj, i);
-				var tile = page.get(pos.x, pos.y);
-				if(tile.terrain <= MD.WATER)
-					continue;
-				var unit = {type:null, party:party, x:pos.x, y:pos.y};
-				switch(numUnits%3) {
-				case 0: unit.type='inf'; break;
-				case 1: unit.type='kv'; break;
-				case 2: unit.type='art'; break;
+			for(var i=objectives.length; i--; ) {
+				var obj = objectives[i];
+				var tile = page.get(obj.x, obj.y);
+				tile.id = ('id' in obj) ? obj.id : i;
+				if(obj.party) {
+					tile.party = obj.party;
+					tile.production = obj.production || 'inf';
+					tile.progress = obj.progress || 0;
 				}
-				this.unitAdd(unit, page);
-				params.units.push(unit);
-				++numUnits;
 			}
 		}
-	}
-
-	this.createScenario = function(params) {
-		// create terrain:
-		var seed = params.seed || "pelagium";
-		var terrain = this.generators[params.generator ? params.generator : "islandInhabited"](seed);
-
-		if(terrain.objectives) { // create scenario:
-			if(!('filterMinorObjectives' in params ) || params.filterMinorObjectives)
-				this.filterMinorObjectives(terrain);
-			if(!params.starts)
-				params.starts = { 1:0, 2:terrain.objectives.length-1 };
-			for(var party in params.starts) {
-				var objId = params.starts[party];
-				if(objId<terrain.objectives.length)
-					terrain.objectives[objId].party = party;
-			}
-		}
-		var page = this.unifyMap(terrain, params.tiles, terrain.objectives, params.units);
-		if(!('units' in params) && terrain.objectives)
-			this.createUnits(page, terrain.objectives, params.starts);
 		return page;
 	}
 
-	this.unitAdd = function(unit, page) {
-		if(!page)
-			page = this.page;
-		var tile = page.get(unit.x, unit.y);
+	this.unitAdd = function(unit) {
+		var tile = this.page.get(unit.x, unit.y);
 		if(!tile || tile.unit)
 			return null;
 		tile.unit = new Unit(unit);
@@ -531,6 +326,52 @@ function MapHex(params) {
 		unit.y = dest.y;
 		return true;
 	}
+	this.unitsInit = function(params) {
+		if(params.units)
+			params.units.forEach(function(unit) { this.unitAdd(unit); }, this);
+		else if(params.objectives && params.starts) {
+			var objectives = params.objectives;
+			var starts = params.starts;
+			params.units = [];
+		
+			// determine minimum number of adjacent land tiles:
+			var numUnitsMax = 6;
+			for(var party in starts) {
+				var objId = starts[party];
+				if(objId>=objectives.length)
+					continue;
+				var obj = objectives[objId];
+				var numAdjacentLandTiles = 0;
+				for(var i=0; i<6; ++i)
+					if(this.page.getPolar(obj.x, obj.y, i).terrain > MD.WATER)
+						++numAdjacentLandTiles;
+				numUnitsMax = Math.min(numUnitsMax, numAdjacentLandTiles);
+			}
+			// place units round robin:
+			for(var party in starts) {
+				var objId = starts[party];
+				if(objId>=objectives.length)
+					continue;
+				var obj = objectives[objId];
+				var numUnits = 0;
+				for(var i=0; i<6 && numUnits<numUnitsMax; ++i) {
+					var pos = this.page.polar2hex(obj, i);
+					var tile = this.page.get(pos.x, pos.y);
+					if(tile.terrain <= MD.WATER)
+						continue;
+					var unit = {type:null, party:party, x:pos.x, y:pos.y};
+					switch(numUnits%3) {
+					case 0: unit.type='inf'; break;
+					case 1: unit.type='kv'; break;
+					case 2: unit.type='art'; break;
+					}
+					this.unitAdd(unit);
+					++numUnits;
+					params.units.push(unit);
+				}
+			}
+		}
+	}
 
 	this.serialize = function() {
 		var data = {
@@ -553,17 +394,24 @@ function MapHex(params) {
 		}
 		return data;
 	}
+
 	this.deserialize = function(data) {
 		var terrain = new MatrixHex(data.terrain);
 		this.pageSz = terrain.width;
-		this.page = this.unifyMap(terrain, null, data.objectives, data.units);
+		this.page = this.unifyMap(terrain, data.objectives, data.starts);
 	}
 
-	if('seed' in params) {
-		this.pageSz = params.pageSz || 32;
-		this.page = this.createScenario(params);
+	this.createMap = function(params) {
+		var terrain = createTerrain(params);
+		this.pageSz = terrain.width;
+		this.page = this.unifyMap(terrain, terrain.objectives, params.starts);
 	}
-	else this.deserialize(params);
+
+	if(createTerrain && ('seed' in params))
+		this.createMap(params);
+	else
+		this.deserialize(params);
+	this.unitsInit(params);
 }
 
 MapHex.finalizeAppearance = function(page) {
@@ -621,7 +469,7 @@ MapHex.draw = function(canvas, map, vp, cellMetrics, fieldOfView, fastMode) {
 	for(var x=Math.max(0,vp.x), xEnd=Math.min(vp.x+vp.width, map.width); x<xEnd; ++x) {
 		var offsetX = vp.offsetX ? vp.offsetX : 0;
 		var offsetY = vp.offsetY ? vp.offsetY : 0;
-		if(x%2) 
+		if(x%2)
 			offsetY+=0.5*cellMetrics.h;
 		for(var y=Math.max(0,vp.y), yEnd=Math.min(vp.y+vp.height, map.height); y<yEnd; ++y) {
 			var tile = map.get(x,y);

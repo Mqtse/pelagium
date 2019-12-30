@@ -2,7 +2,7 @@ const qs = require('querystring');
 const os = require('os');
 
 const httpUtils = require('./httpUtils');
-const Sim = require('./sim');
+const Sim = require('./static/sim');
 const Storage = require('./DiskStorage');
 const JsonValidator = require('./JsonSchemaValidator')
 

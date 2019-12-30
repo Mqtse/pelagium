@@ -1,5 +1,6 @@
 // client-side generic utilities
 
+//------------------------------------------------------------------
 http = {
 	encodeURI: function(obj) {
 		var s = '';
@@ -54,15 +55,17 @@ http = {
 	timeout: 32000
 }
 
+//------------------------------------------------------------------
 eludi = {
 	/// returns URL parameters as map
-	paramsRequest: function() {
+	paramsRequest: function(keep = false) {
 		var map = (typeof params === 'undefined') ? {} : params;
 		if(location.protocol!='file:' && sessionStorage && sessionStorage['eludi_paramsRequest']) {
 			var storedParams = JSON.parse(sessionStorage['eludi_paramsRequest']);
 			for(var key in storedParams)
 				map[key] = storedParams[key];
-			delete sessionStorage['eludi_paramsRequest'];
+			if(!keep)
+				delete sessionStorage['eludi_paramsRequest'];
 		}
 		if(location.href.indexOf('?')>=0)
 			location.href.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
@@ -232,9 +235,18 @@ eludi = {
 			location.replace(url);
 		else location.href=url;
 	},
-
+	/// dynamically loads a javascript file from a url
+	loadjs: function (url, callback) {
+		var node=document.createElement('script');
+		node.setAttribute("type","text/javascript");
+		node.setAttribute("src", url);
+		if(callback)
+			node.addEventListener("load", callback, false);
+		document.getElementsByTagName("head")[0].appendChild(node);
+	}
 }
 
+//------------------------------------------------------------------
 function ButtonController(selector, callback) {
 	var element = document.querySelector(selector);
 	this.setMode = function(mode) {
@@ -273,4 +285,59 @@ function ButtonController(selector, callback) {
 	element.onclick = (evt)=>{
 		callback({type:this.mode, currentTarget:evt.currentTarget});
 	};
+}
+
+//------------------------------------------------------------------
+function Cache(name, sessionId) {
+	this.setItem = function(key, value) {
+		if(value===undefined)
+			value = null;
+		this.storage.setItem(this.prefix+key, JSON.stringify(value));
+		if(this.keys[key] !== true) {
+			this.keys[key] = true;
+			this.storage.setItem(this.prefix, JSON.stringify(this.keys));
+		}
+	}
+	this.getItem = function(key) {
+		if(!(key in this.keys))
+			return null;
+		var value = this.storage.getItem(this.prefix+key);
+		return value ? JSON.parse(value) : value;
+	}
+	this.removeItem = function(key) {
+		if(!(key in this.keys))
+			return;
+		delete this.keys[key];
+		this.storage.removeItem(this.prefix+key);
+		this.storage.setItem(this.prefix, JSON.stringify(this.keys));
+	}
+	this.clear = function() {
+		for(var key in this.keys)
+			this.storage.removeItem(this.prefix+key);
+		this.keys = {};
+	}
+
+	var init = function(name, sessionId, storage) {
+		this.storage = storage;
+		this.prefix = name+'_';
+		var keyStr = storage.getItem(this.prefix);
+		this.keys = keyStr ? JSON.parse(keyStr) : {};
+		var sessionIdKey = '/sessionId';
+		if(!keyStr)
+			this.setItem(sessionIdKey, sessionId);
+		else {
+			var storedSessionId = this.getItem(sessionIdKey);
+			if(storedSessionId != sessionId) {
+				this.clear();
+				this.setItem(sessionIdKey, sessionId);
+			}
+		}
+	}
+	if(typeof localStorage !== 'undefined')
+		init.call(this, name, sessionId, localStorage);
+	else {
+		this.setItem = function(key, value) { }
+		this.getItem = this.removeItem = function(key) { }
+		this.clear = function() { }
+	}
 }

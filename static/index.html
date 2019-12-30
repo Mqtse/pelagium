@@ -4,7 +4,7 @@
 		<title>pelagium</title>
 		<meta charset="ISO-8859-15">
 		<meta name="author" content="Gerald Franz"/>
-		<meta name="description" content="turn-based online strategy game"/>
+		<meta name="description" content="turn-based strategy game"/>
 		<meta name="keywords" content="water world,HTML5,javascript"/>
 		<meta name="theme-color" content="#cadacf"/>
 
@@ -97,7 +97,7 @@ a {
 	color:var(--text-color-select);
 	text-decoration: none;
 }
-a:hover {
+a:hover, ul.footer a:hover  {
 	cursor: pointer;
 	color:white;
 }
@@ -136,7 +136,7 @@ input {
 	cursor: pointer;
 }
 
-#screen_help > div, #screen_story > p {
+#screen_help > div, #screen_story > p, #screen_credits > p {
 	text-shadow:0 0 0.25em rgb(201,219,207);
 	font-size: 66%;
 	font-weight: bold;
@@ -265,6 +265,24 @@ ul.party_player {
 .selected {
 	color:var(--text-color-heading);
 }
+
+ul.footer {
+	font-size:12px;
+	position:fixed;
+	right:0;
+	bottom:0;
+	margin:0;
+	padding:0;
+}
+ul.footer li {
+	padding: 0 1em 0 0;
+	list-style-type: none;
+	display: inline;
+}
+ul.footer a {
+	font-weight: bold;
+	color:var(--text-color-default);
+}
 		</style>
 
 		<script type="text/javascript" src="/static/infra.js"></script>
@@ -360,7 +378,11 @@ app = {
 		if(!('hex' in dc))
 			extendCanvasContext(dc);
 
+		if(data.starts)
+			for(var partyId in data.starts)
+				data.objectives[data.starts[partyId]].party = partyId; 
 		var map = new MapHex(data);
+
 		var page = map.page;
 		for(var x=0; x<page.width; ++x) for(var y=0; y<page.height; ++y) {
 			var tile = page.get(x,y);
@@ -462,7 +484,12 @@ app = {
 			li.dataset.id = id;
 			li.querySelector('div').innerHTML = MD.Party[id].name;
 			let radioPartyType = li.querySelector('.party_player');
-			radioPartyType.addEventListener('click', (evt)=>{ switchClassId(evt.target); });
+			radioPartyType.addEventListener('click', (evt)=>{
+				if(evt.target.innerHTML=='you') {
+					// todo
+				}
+				switchClassId(evt.target);
+			});
 			if(startsCounter < 2)
 				switchClassId(radioPartyType.children[startsCounter]);
 			else
@@ -502,6 +529,8 @@ app = {
 		var id = document.getElementById("resume_id").value.toUpperCase();
 		if(id.length)
 			this.openUrl('/static/pelagium.html', {cmd:'resume', id:id});
+		else if(localStorage && localStorage.getItem('pelagium/client_/sim'))
+			this.openUrl('/static/pelagium.html', {cmd:'resume'});
 	},
 	join: function() {
 		if(!navigator.onLine)
@@ -619,7 +648,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 			><ul id="screen_main"
 				><li class="l10n" onclick="app.screen('scenario');">start game</li
 				><li class="l10n" onclick="app.screen('resume');">resume</li
-				><li class="l10n" onclick="app.screen('join');">join game</li
+				><li class="l10n multiplayer" onclick="app.screen('join');">join game</li
 				><li class="l10n" onclick="app.demo();">demo</li
 				><li class="l10n" onclick="app.tutorial();">tutorial</li
 				><li class="l10n" onclick="app.screen('help');">about&hellip;</li
@@ -633,6 +662,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 				><ul
 					><li class="l10n" onclick="app.screen('help_units');">units</li
 					><li class="l10n" onclick="app.screen('help_terrain');">terrain</li
+					><li class="l10n" onclick="app.screen('credits');">credits</li
 					><li class="l10n" onclick="app.screen('main')">back</li
 				></ul
 			></div
@@ -671,7 +701,7 @@ Good luck!
 
 			><div id="screen_resume" style="display:none;"
 				><h2 class="l10n">resume game</h2
-				><input type="text" id="resume_id" placeholder ="id" size="6" maxlength="6"
+				><input type="text" id="resume_id" class="multiplayer" placeholder ="id" size="6" maxlength="6"
 					onkeypress="app.onEnter(event, function() { app.resume(); });"
 				/><ul
 					><li onclick="app.resume();"><span class ="l10n">resume</span></li
@@ -691,7 +721,7 @@ Good luck!
 
 			><div id="screen_scenario" style="display:none;"
 				><h2 class="l10n">start game</h2
-				><div id="custom_scenario"
+				><div id="custom_scenario" class="multiplayer"
 					><input type="text" id="scenario_id" placeholder="custom scenario" size="12" maxlength="20"
 						onkeypress="app.onEnter(event, ()=>{ app.start(event.target.value); });"
 					/><svg onclick="app.start(document.getElementById('scenario_id').value);"
@@ -718,7 +748,7 @@ Good luck!
 						><ul class="party_player"
 							><li data-value="0">you</li
 							><li data-value="1">A.I.</li
-							><li data-value="2">human</li
+							><li data-value="2" class="multiplayer">human</li
 							><li data-value="-1">no one</li
 						></ul
 					></li
@@ -754,6 +784,22 @@ Good luck!
 					><li onclick="app.screen('help');"><span class ="l10n">back</span></li
 				></ul
 			></div
+
+			><div id="screen_credits" style="display:none;"
+				><h2 class="l10n">credits</h2
+				><p class="l10n">Pelagium &copy; 2019 by <a href="https://eludi.net/#legal">eludi.net</a>.<br/>All rights reserved.</p
+				><p class="l10n"><a href="/media/morgana-rides--by-kevin-macleod.mp3">Title theme &quot;Morgana Rides&quot;</a>
+					by <a href=https://incompetech.com">Kevin MacLeod</a>
+					from <a href="https://filmmusic.io">https://filmmusic.io</a>,
+					licensed under <a href="http://creativecommons.org/licenses/by/4.0/">CC BY</a>.
+				</p
+				><ul
+					><li onclick="app.screen('main');"><span class ="l10n">back</span></li
+				></ul
+			></div
 		></div
-	/></body>
+		><ul class="footer"
+			><li><a href="https://eludi.net/#privacyPolicy" class="l10n">privacy policy</a></li
+			><li><a href="https://eludi.net/#legal" class="l10n">legal/Impressum</a></li></ul
+	></body>
 </html>

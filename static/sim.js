@@ -1,5 +1,5 @@
 if(typeof require !== 'undefined') {
-	var shared = require('./static/shared');
+	var shared = require('./shared');
 	MapHex = shared.MapHex;
 	MatrixHex = shared.MatrixHex;
 	MatrixSparse = shared.MatrixSparse;
@@ -9,7 +9,7 @@ if(typeof require !== 'undefined') {
 function Sim(params, callback) {
 	/// pure terrain
 	this.getTerrain = function(party, params, callback) {
-		var terrain = this.map.getTerrain(params.page ? params.page : 0, true);
+		var terrain = this.map.getTerrain(0, true);
 		callback(terrain);
 		return false;
 	}
@@ -59,16 +59,17 @@ function Sim(params, callback) {
 		}
 		params.turn = parseInt(params.turn);
 		if(params.turn != this.turn && params.turn+1 != this.turn) {
-			console.warn(party.name, 'inconsistent client state. Turn client:', params.turn, 'sim:', this.turn);
+			console.warn(party.name, 'inconsistent client state. Turn client:',
+				params.turn, 'sim:', this.turn);
 			return 'getSituation';
 		}
 		if(params.turn == this.turn) { // todo, handle orders arriving a little bit later
 			let ordersSent = params.ordersSent==='true';
 			let ordersReceived = party.orders !== null;
 			if(ordersSent != ordersReceived) {
-				console.warn(party.name, 'inconsistent client state. Orders sent:', ordersSent, 'received:', ordersReceived);
-				if(!ordersReceived)
-					return 'postOrders';
+				console.warn(party.name, 'inconsistent client state. Orders sent:',
+					ordersSent, 'received:', ordersReceived);
+				return ordersReceived ? 'ordersAlreadyReceived' : 'postOrders';
 			}
 		}
 		return '';
@@ -78,8 +79,11 @@ function Sim(params, callback) {
 	this.getSimEvents = function(partyId, params, callback) {
 		let party = this.parties[partyId];
 		let inconsistency = this.checkConsistency(party, params);
-		if(inconsistency)
-			callback([{ type:inconsistency, category:'inconsistency', turn:this.turn, ordersReceived: party.orders !== null }]);
+		if(inconsistency) {
+			if(inconsistency!='ordersAlreadyReceived')
+				callback([{ type:inconsistency, category:'inconsistency',
+					turn:this.turn, ordersReceived: party.orders !== null }]);
+		}
 		else if(!party.events)
 			this.simEventListeners[partyId]=callback;
 		else {
@@ -116,6 +120,11 @@ function Sim(params, callback) {
 			callback();
 		return true;
 	}
+
+	this.isSimOnClient = (typeof require === 'undefined');
+		
+	if(this.isSimOnClient)
+		this.on = function(evt, callback) { }
 
 	this._postPresenceEvent = function(partyId, type, params) {
 		let evt = { type:type, category:'presence', party:partyId };
@@ -403,7 +412,8 @@ function Sim(params, callback) {
 				continue;
 			if(typeof listener === 'function') {
 				listener(evts);
-				delete this.simEventListeners[key];
+				if(!this.isSimOnClient)
+					delete this.simEventListeners[key];
 			}
 			else if(typeof listener === 'object') {
 				if(typeof listener.emit === 'function')
@@ -663,7 +673,6 @@ function Sim(params, callback) {
 		var data = {
 			scenario: this.scenario,
 			timePerTurn: this.timePerTurn,
-			devMode: this.devMode,
 			turn: this.turn,
 			turnStartTime: this.turnStartTime,
 			lastUpdateTime: this.lastUpdateTime,
@@ -689,7 +698,6 @@ function Sim(params, callback) {
 		// CAVEAT: no changes that prohibit deserialization of existing match serializations!
 		this.scenario = data.scenario;
 		this.timePerTurn = data.timePerTurn;
-		this.devMode = data.devMode;
 		this.turn = data.turn;
 		this.turnStartTime = data.turnStartTime;
 		this.lastUpdateTime = data.lastUpdateTime;
@@ -716,6 +724,15 @@ function Sim(params, callback) {
 	this._initStats = function(scenario) {
 		var parties = this.parties = {};
 		this.numParties = 0;
+		if(!('starts' in scenario)) {
+			scenario.starts = {};
+			for(var i=0; i<scenario.objectives.length; ++i) {
+				var obj = scenario.objectives[i];
+				if('party' in obj)
+					scenario.starts[obj.party] = obj.id;
+				
+			}
+		}
 		for(var key in scenario.starts) {
 			++this.numParties;
 			parties[key] = { objectives:1, units:0, unitsBuilt:0,
@@ -723,7 +740,8 @@ function Sim(params, callback) {
 				orders:null, name:MD.Party[key].name, mode:null,
 				fov:this.map.getFieldOfView(key), knownObjectives:{} };
 			for(var partyId in scenario.starts)
-				parties[key].knownObjectives[scenario.starts[partyId]] = parseInt(partyId);
+				parties[key].knownObjectives[scenario.starts[partyId]]
+					= parseInt(partyId);
 		}
 		for(var key in scenario.units) {
 			var unit = scenario.units[key];
@@ -734,7 +752,7 @@ function Sim(params, callback) {
 
 	this._init = function(params) {
 		var defaults = {
-			scenario:'baiazul',
+			scenario:'smaloe',
 			pageSz:32,
 			fractionObjectivesVictory:0.66,
 			timePerTurn: 86400, // 1 day
@@ -746,12 +764,17 @@ function Sim(params, callback) {
 				isNaN(parseInt(params[key])) ? params[key] : parseInt(params[key])
 				: defaults[key];
 
+		if(this.isSimOnClient && !('visibleScenarios' in Sim))
+			Sim.loadBuiltinScenarios();
+
 		var scenario = {};
-		if(!(this.scenario in Sim.scenarios))
+		if(!this.isSimOnClient && !(this.scenario in Sim.scenarios))
 			scenario.seed = this.scenario;
 		else {
 			var scn = Sim.scenarios[this.scenario];
 			for(var key in scn) {
+				if(key==='visibility')
+					continue;
 				var value = scn[key];
 				if(typeof value == 'object') // deepcopy
 					scenario[key] = JSON.parse(JSON.stringify(value));
@@ -761,13 +784,16 @@ function Sim(params, callback) {
 		}
 
 		if(typeof params.parties == 'object') // remove disabled parties/starts
-			for(let key in params.parties)
+			for(let key in params.parties) {
 				if(params.parties[key]== -1)
 					delete scenario.starts[key];
+				else if(params.parties[key]==0 && !('party' in params))
+					params.party = key;
+			}
 
 		this.map = new MapHex(scenario);
-		this.numObjectivesVictory
-			= Math.ceil(this.map.getObjectives().length * this.fractionObjectivesVictory);
+		this.numObjectivesVictory = Math.ceil(
+			this.map.getObjectives().length * this.fractionObjectivesVictory);
 	
 		this._initStats(scenario);
 		this.simEventCounter = 0;
@@ -778,17 +804,38 @@ function Sim(params, callback) {
 	}
 
 	this.state = 'init';
+	if(this.isSimOnClient && params.cmd=='resume') {
+		if(!localStorage || !localStorage.getItem('pelagium/client_/sim'))
+			return console.error('no match to resume found in local storage');
+		params = JSON.parse(localStorage.getItem('pelagium/client_/sim'));
+		for(let id in params.parties)
+			if(params.parties[id].mode!='AI')
+				params.party = id;
+	}
 	if('turn' in params)
 		this._deserialize(params);
 	else
 		this._init(params);
+
 	this.simEventListeners = { };
-	if(callback)
-		callback({ party:params.party ? params.party : 1 }, this);
+	if(callback) {
+		var credentials = { party:params.party ? params.party : 1 };
+		if(this.isSimOnClient) {
+			credentials.mode = params.cmd;
+			credentials.parties = {};
+			for(let key in this.parties)
+				if(key==credentials.party)
+					credentials.parties[key] = {};
+				else
+					credentials.parties[key] = { party:key, mode:'AI' };
+		}
+		callback(credentials, this);
+	}
 }
 
 Sim.loadScenarios = function(path) {
-	var Storage = require('./DiskStorage');
+	var createTerrain = require('../terrainGenerator');
+	var Storage = require('../DiskStorage');
 	var storage = new Storage(path);
 	var scenarios = Sim.scenarios = {};
 	var visible = Sim.visibleScenarios = {};
@@ -800,9 +847,33 @@ Sim.loadScenarios = function(path) {
 			++numScenarios;
 			if(!('visibility' in data)||data.visibility!='hidden')
 				visible[id] = data;
+
+			if('seed' in data) {
+				var terrain = createTerrain(data)
+				data.terrain = terrain.serialize(true);
+				data.objectives = terrain.objectives;
+				if(!data.starts)
+					data.starts = { 1:0, 2:data.objectives.length-1 };
+				delete data.seed;
+				delete data.tiles;
+			}
 		}
 	});
+	//storage.setItem('builtinScenarios', scenarios);
 	console.log(numScenarios, 'scenarios loaded from', path);
+}
+
+Sim.loadBuiltinScenarios = function() {
+	var scenarios = Sim.scenarios;
+	var visible = Sim.visibleScenarios = {};
+	var numScenarios = 0;
+	for(let id in scenarios) {
+		var data = scenarios[id];
+		++numScenarios;
+		if(!('visibility' in data)||data.visibility!='hidden')
+			visible[id] = data;
+	}
+	console.log(numScenarios, 'static scenarios loaded');
 }
 
 if(typeof module == 'object' && module.exports)

@@ -1,59 +1,4 @@
-//--- Cache --------------------------------------------------------
-function Cache(name, sessionId) {
-	this.setItem = function(key, value) {
-		this.storage.setItem(this.prefix+key, JSON.stringify(value));
-		if(this.keys[key] !== true) {
-			this.keys[key] = true;
-			this.storage.setItem(this.prefix, JSON.stringify(this.keys));
-		}
-	}
-	this.getItem = function(key) {
-		if(!(key in this.keys))
-			return null;
-		var value = this.storage.getItem(this.prefix+key);
-		return value ? JSON.parse(value) : value;
-	}
-	this.removeItem = function(key) {
-		if(!(key in this.keys))
-			return;
-		delete this.keys[key];
-		this.storage.removeItem(this.prefix+key);
-		this.storage.setItem(this.prefix, JSON.stringify(this.keys));
-	}
-	this.clear = function() {
-		for(var key in this.keys)
-			this.storage.removeItem(this.prefix+key);
-		this.keys = {};
-	}
-
-	var init = function(name, sessionId, storage) {
-		this.storage = storage;
-		this.prefix = name+'_';
-		var keyStr = storage.getItem(this.prefix);
-		this.keys = keyStr ? JSON.parse(keyStr) : {};
-		var sessionIdKey = '/sessionId';
-		if(!keyStr)
-			this.setItem(sessionIdKey, sessionId);
-		else {
-			var storedSessionId = this.getItem(sessionIdKey);
-			if(storedSessionId != sessionId) {
-				this.clear();
-				this.setItem(sessionIdKey, sessionId);
-			}
-		}
-	}
-	if(typeof localStorage !== 'undefined')
-		init.call(this, name, sessionId, localStorage);
-	else {
-		this.setItem = function(key, value) { }
-		this.getItem = this.removeItem = function(key) { }
-		this.clear = function() { }
-	}
-}
-
 // --- SimProxy ----------------------------------------------------
-var baseUrl = (location.origin ? location.origin : '') + '/pelagium';
-
 function SimProxy(params, callback) {
 	var retryInterval = 5000;
 
@@ -84,7 +29,7 @@ function SimProxy(params, callback) {
 		let cb = function(data, code) {
 			if(code==200) {
 				self.cache.setItem(key, data);
-				callback(data);	
+				callback(data);
 			}
 			else if(++attempt <= attemptsMax) {
 				setTimeout(()=>{
@@ -121,11 +66,10 @@ function SimProxy(params, callback) {
 		}
 		http.get(this.userUrl+key, params, cb, this);
 	}
-	this.postOrders = function(party, orders, turn) {
+	this.postOrders = function(party, data) {
 		if(party!=this.credentials.party)
 			return;
 		var key = '/postOrders';
-		var data = { orders:orders, turn:turn };
 		http.post(this.userUrl+key, data, function(data, code) {
 			if(code==200 || code==204)
 				return this.cache.removeItem(key);
@@ -134,9 +78,9 @@ function SimProxy(params, callback) {
 				this.emit('warn', 'orders rejected.');
 				return this.cache.removeItem(key);
 			}
-			this.cache.setItem(key, orders);
+			this.cache.setItem(key, data);
 			console.warn('posting orders to server failed. Orders are cached locally.')
-			setTimeout(()=>{ this.postOrders(party, orders, turn); }, retryInterval);
+			setTimeout(()=>{ this.postOrders(party, data); }, retryInterval);
 		}, this);
 	}
 

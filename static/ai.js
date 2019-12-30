@@ -3,8 +3,7 @@ if(typeof importScripts === 'function') { // webworker
 		"/static/masterdata.js",
 		"/static/infra.js",
 		"/static/shared.js",
-		"/static/pathfinder.js",
-		"/static/sim_proxy.js");
+		"/static/pathfinder.js");
 }
 
 let Attitude = {
@@ -305,7 +304,7 @@ let AI = function(sim, credentials, autoPilot=false, isSynchronous=false) {
 			else simEvents.push(evt);
 		}
 		if(!simEvents.length) {
-			if(isSynchronous)
+			if(isSynchronous || this.autoPilot)
 				this.getSimEvents();
 			return;
 		}
@@ -608,10 +607,12 @@ let AI = function(sim, credentials, autoPilot=false, isSynchronous=false) {
 	}
 
 	this.dispatchOrders = function() {
-		this.sim.postOrders(this.credentials.party, this.orders, this.turn);
+		this.sim.postOrders(this.credentials.party, {orders:this.orders, turn:this.turn});
 		this.consistencyState.ordersSent = true;
-		if(this.autoPilot)
+		if(this.autoPilot) {
 			this.dispatchOrdersBlocked = true;
+			this.getSimEvents();
+		}
 	}
 
 	this.unblockDispatchOrders = function() {
@@ -710,16 +711,26 @@ AI.createMulti = function(params, callback, allEvents) {
 
 if(typeof importScripts === 'function') { // webworker
 	onmessage = function(e) {
-		let params = e.data;
-		if(params.cmd=='join' || params.cmd=='resume') {
-			let method = Array.isArray(params.party) ? 'createMulti' : 'create';
-			AI[method](params, (evt, data)=>{
+		let msg = e.data;
+		if(msg.cmd=='join' || msg.cmd=='resume') {
+			if(typeof SimProxy == 'undefined') {
+				if(msg.id) // client-server
+					importScripts("/static/sim_proxy.js");
+				else // isSinglePlayer
+					importScripts("/static/sim_delegate.js");
+			}
+
+			let method = Array.isArray(msg.party) ? 'createMulti' : 'create';
+			AI[method](msg, (evt, data)=>{
 				postMessage({ type:evt, data:data });
 			});
 		}
-		else if(params.cmd == 'postOrders')
+		else if(msg.cmd == 'postOrders') {
 			for(let i=0; i<AI.instances.length; ++i)
 				if(AI.instances[i].autoPilot)
 					AI.instances[i].unblockDispatchOrders();
+		}
+		else if('_delegateMsg' in SimProxy)
+			SimProxy._delegateMsg(msg);
 	}
 }

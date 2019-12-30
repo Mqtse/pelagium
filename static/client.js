@@ -157,6 +157,7 @@ client = {
 		this.turn = 1;
 		this.consistencyState = { turn:this.turn, ordersSent:false, state:this.state };
 		this.cache = new Cache('pelagium/client', this.credentials.id);
+		this.cache.removeItem('/sim');
 		this.workers = [];
 		this.renderer = new RendererAdhoc(
 			this.foreground.dc, 2*this.settings.scales[this.settings.scales.length-1]);
@@ -167,7 +168,7 @@ client = {
 			if(party.mode==='AI')
 				aiOpponents.push(party);
 		}
-		if(aiOpponents.length)
+		if(aiOpponents.length && !this.isTutorial)
 			this.spawnAI(aiOpponents);
 		this.autoPilot = this.isDemo ? this.spawnAI(this.credentials.id, this.party, true) : null;
 
@@ -194,9 +195,15 @@ client = {
 		eludi.click2touch();
 
 		if(this.autoPilot)
-			this.autoPilot.on('simEvents', (evt, data)=>{ this.handleExternalEvents(data); });
+			this.autoPilot.on('simEvents', (evt, data)=>{
+				this.handleExternalEvents(data);
+			});
 		else
-			sim.getSimEvents(this.party, this.consistencyState, (data)=>{ this.handleExternalEvents(data); });
+			sim.getSimEvents(this.party, this.consistencyState, (data)=>{
+				if(!this.isSimOnClient)
+					this.handleExternalEvents(data);
+				else setTimeout(()=>{ this.handleExternalEvents(data); }, 0);
+			});
 
 		sim.getTerrain(this.party, null, (data)=>{
 			if(!data)
@@ -220,9 +227,10 @@ client = {
 
 	close: function(saveMatch, params) {
 		if(saveMatch && this.state!='over') {
-			return this.modalPopup('resume id: '+this.credentials.id, ['OK'], ()=>{
-				eludi.openUrl(baseUrl, params, false);
-			});
+			if(!this.isSimOnClient)
+				return this.modalPopup('resume id: '+this.credentials.id, ['OK'],
+					()=>{ eludi.openUrl(baseUrl, params, false); });
+				this.cache.setItem('/sim', this.sim._serialize());
 		}
 		eludi.openUrl(baseUrl, params, false);
 	},
@@ -449,8 +457,9 @@ client = {
 		case 'fwd':
 			this.btnMain.setFocus(false);
 			return this.dispatchOrders();
-		case 'spinner':
-			return this.sim.postOrders(this.party, [{type:'forceEvaluate'}], this.turn); // only devMode
+		case 'spinner': // only devMode
+			return this.sim.postOrders(this.party, {orders:[{type:'forceEvaluate'}],
+				turn:this.turn});
 		case 'pause':
 			// todo
 			break;
@@ -697,7 +706,7 @@ client = {
 	dispatchOrders: function(force=false) {
 		if(!force && this.state!='input')
 			return;
-		this.sim.postOrders(this.party, this.orders, this.turn);
+		this.sim.postOrders(this.party, {orders:this.orders, turn:this.turn});
 		this.consistencyState.ordersSent = true;
 		for(var id in this.units) {
 			var unit = this.units[id];
@@ -938,7 +947,6 @@ client = {
 		let newTurn = parseInt(data.turn);
 		if(newTurn != this.turn) {
 			this.orders = [];
-			this.cache.removeItem('/orders');
 			this.consistencyState.ordersSent = false;
 		}
 		this.consistencyState.turn =this.turn = newTurn;
@@ -996,7 +1004,7 @@ client = {
 		if(unit!==null&&(typeof evt.unit!='object')) {
 			unit = this.units[unit];
 			if(!unit || unit.state=='dead')
-				return console.error('event refers to unknown unit:', evt);
+				return console.warn('event refers to unknown unit:', evt);
 		}
 
 		switch(evt.type) {
@@ -1086,6 +1094,8 @@ client = {
 				this.orders = [];
 				this.cache.removeItem('/orders');
 				this.consistencyState.ordersSent = false;
+				if(this.isSimOnClient)
+					this.cache.setItem('/sim', this.sim._serialize());
 			}
 			this.updateProduction(newTurn - this.turn);
 			this.consistencyState.turn = this.turn = newTurn;
@@ -1136,12 +1146,14 @@ client = {
 	},
 	handleInconsistencyEvent: function(evt) {
 		if(evt.type=='getSituation') {
-			this.sim.getSituation(this.party, null, (data)=>{ this.handleSituation(data); });
+			this.sim.getSituation(this.party, null, (data)=>{
+				this.handleSituation(data); });
 		}
 		else if(evt.type=='postOrders')
 			this.dispatchOrders(true);
 
-		console.warn('inconsistency event type:', evt.type, 'turn:', evt.turn, 'ordersReceived:', evt.ordersReceived);
+		console.warn('inconsistency event type:', evt.type, 'turn:', evt.turn,
+			'ordersReceived:', evt.ordersReceived);
 	},
 
 	switchState: function(state, params) {
@@ -1207,10 +1219,13 @@ client = {
 
 		case 'over': {
 			this.selUnit = null;
-			if(localStorage)
+			if(localStorage) {
 				delete localStorage.pelagium;
+				this.cache.removeItem('/sim');
+			}
 			this.outcome = { screen:'over', party:this.credentials.party,
-				winners:params.winners, loosers:params.loosers, capitulated:params.capitulated, stats:params.stats };
+				winners:params.winners, loosers:params.loosers,
+				capitulated:params.capitulated, stats:params.stats };
 
 			this.btnMain.setMode('exit');
 			this.hideMenuItem('joinCredentials').hideMenuItem('suspend').hideMenuItem('capitulate');
@@ -1226,14 +1241,23 @@ client = {
 	spawnAI: function(id, party, autoPilot=false) {
 		let ai = new Worker('/static/ai.js');
 		this.workers.push(ai);
-		ai.onmessage = (msg)=>{
+		let client = this;
+		ai.onmessage = function(msg) {
 			let evt = msg.data.type;
 			let data = msg.data.data;
 			if(evt=='credentials') {
 				console.log('AI opponent has joined as '+MD.Party[data.party].name);
+				if(client.isSimOnClient)
+					client.sim._postPresenceEvent(data.party, 'join', data);
 			}
 			else if(evt=='error') {
-				this.displayStatus('AI ERROR: '+data);
+				client.displayStatus('AI ERROR: '+data);
+			}
+			else if(msg.data.receiver === 'sim') { // delegate to single-player sim:
+				let callback = msg.data.callback ? (data)=>{
+					this.postMessage({callback:msg.data.callback, data:data});
+				} : null;
+				client.sim[msg.data.type](msg.data.sender, data, callback);
 			}
 			ai.emit(evt, data);
 		}
@@ -1319,12 +1343,40 @@ client = {
 		}
 		eludi.click2touch(items);
 		popup.style.display = '';
+	},
+
+	checkSimOnClient: function() {
+		if(!('isSimOnClient' in this)) {
+			let params = eludi.paramsRequest(true);
+			switch(params.cmd) {
+			case 'demo':
+			case 'tutorial':
+				this.isSimOnClient = true;
+				break;
+			case 'resume':
+			case 'start':
+				this.isSimOnClient = true;
+				if('parties' in params) for(let id in params.parties) {
+					let partyType = params.parties[id];
+					if(partyType==2) {
+						this.isSimOnClient = false;
+						break;
+					}
+				}
+				break;
+			default:
+				console.warn('checkSimOnClient unhandled cmd:', params);
+				this.isSimOnClient = false;
+			}
+		}
+		console.log('sim runs on', this.isSimOnClient ? 'client' : 'server');
+		return this.isSimOnClient;
 	}
 }
 
 window.addEventListener("load", ()=>{
 	let params = eludi.paramsRequest();
-	let sim = new SimProxy(params, (credentials, sim)=>{
+	let sim = new (window.SimProxy ? window.SimProxy : window.Sim)(params, (credentials, sim)=>{
 		if(credentials && sim)
 			client.init(credentials, sim);
 		else
@@ -1339,3 +1391,8 @@ window.addEventListener("load", ()=>{
 		for (let i = 0, all=document.querySelectorAll('.noselect'); i < all.length; ++i)
 			all[i].addEventListener("touchmove", (evt)=>{ evt.preventDefault() });
 });
+
+if(!client.checkSimOnClient())
+	eludi.loadjs("/static/sim_proxy.js");
+else
+	eludi.loadjs("/static/sim.js", ()=>{ eludi.loadjs("/static/builtinScenarios.js"); });
