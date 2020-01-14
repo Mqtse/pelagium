@@ -1,6 +1,7 @@
 // --- SimProxy ----------------------------------------------------
 function SimProxy(params, callback) {
-	var retryInterval = 5000;
+	const retryInterval = 5000;
+	const baseUrl = (location.origin ? location.origin : '') + '/pelagium';
 
 	this.getSimEvents = function(party, params, callback) {
 		if(party!=this.credentials.party)

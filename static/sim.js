@@ -83,6 +83,8 @@ function Sim(params, callback) {
 			if(inconsistency!='ordersAlreadyReceived')
 				callback([{ type:inconsistency, category:'inconsistency',
 					turn:this.turn, ordersReceived: party.orders !== null }]);
+			if(this.isSimOnClient && !this.simEventListeners[partyId])
+				this.simEventListeners[partyId]=callback;
 		}
 		else if(!party.events)
 			this.simEventListeners[partyId]=callback;

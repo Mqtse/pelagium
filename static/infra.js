@@ -271,15 +271,28 @@ function ButtonController(selector, callback) {
 	}
 	this.setFocus = function(hasFocus) {
 		var child = element.querySelector("[data-id='"+this.mode+"']")
-		if(child)
-			child.style.animation = hasFocus ? 'focus_keyframes 1.33s infinite ease-in-out' : '';
+		if(!child)
+			return this;
+		if(hasFocus) {
+			child.style.animation = 'focus_keyframes 1.33s infinite ease-in-out';
+			child.focus();
+		}
+		else
+			child.style.animation = '';
 		return this;
+	}
+	this.hasFocus = function() {
+		var child = element.querySelector("[data-id='"+this.mode+"']")
+		return child && child.style.animation;
 	}
 	this.show = function() {
 		element.style.display = '';
 	}
 	this.hide = function() {
 		element.style.display = 'none';
+	}
+	this.trigger = function() {
+		callback({type:this.mode, currentTarget:element.querySelector("[data-id='"+this.mode+"']")});
 	}
 	this.mode = '';
 	element.onclick = (evt)=>{

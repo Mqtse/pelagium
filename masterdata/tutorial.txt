@@ -1,0 +1,22 @@
+Welcome to the scenic islands of pelagium!
+
+In order to win a scenario, you have to capture the majority of its settlements.
+Settlements under your party's control allow you to train new units.
+
+There are three different types of units: infantry, cavalry, and artillery.
+Each unit type has its particular strengths and weaknesses.
+
+By tapping or clicking on one of your units, you can see its properties and field of movement.
+Tapping or clicking on a tile within the field of movement makes the unit move thereto.
+When you are done with giving orders, press the button "next turn".
+
+As soon as all players have given their orders, the turn will be evaluated.
+Units move round-robin in the same sequence as they were given orders.
+If a unit enters a tile already occupied by another party's unit, a battle ensues.
+
+Nearby units of the same party may support their comrades.
+Also the terrain has a significant effect on the battle's outcome.
+The engagement ends with one unit involved either surrendering or retreating.
+
+Thus key for success is distributing forces in a way that they optimally support each other and ultimately serve your strategic goals.
+OK, enough with theory, let's gain some real experience!

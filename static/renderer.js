@@ -166,6 +166,33 @@ function AnimationSupport(tStart, unit, destination, callback, cbData) {
 	this.type = 'support';
 }
 
+
+function TransitionFade(background='black', alphaFrom=0.0, alphaTo=1.0, duration=0.4) {
+	let ovl = document.createElement('div');
+	ovl.style.position = 'fixed';
+	ovl.style.width='100vw';
+	ovl.style.height='100vh';
+	ovl.style.top = ovl.style.left = 0;
+	ovl.style.background = background;
+	ovl.style.opacity = alphaFrom;
+	ovl.style.zIndex = 99999;
+	document.documentElement.appendChild(ovl);
+
+	let tStart = Date.now()/1000;
+	let update = function() {
+		let tNow = Date.now()/1000;
+		if(tNow>=tStart+duration) {
+			if(alphaTo<=0.0)
+				document.documentElement.removeChild(ovl)
+			return;
+		}
+		let pos = (tNow-tStart)/duration;
+		ovl.style.opacity = (1.0-pos)*alphaFrom + pos*alphaTo;
+		requestAnimationFrame(()=>{ update(); });
+	}
+	requestAnimationFrame(()=>{ update(); });
+}
+
 //--- renderer -----------------------------------------------------
 function RendererSprites(dc, size) {
 	const sz = size*Math.tan(Math.PI/6);
@@ -185,7 +212,7 @@ function RendererSprites(dc, size) {
 		return sprites;
 	}
 	function initPartySprites() {
-		const shadowR = lineWidth/2;
+		const shadowR = lineWidth*0.7;
 		let sprites = {};
 		for(let id in MD.Party) {
 			let party = MD.Party[id];
@@ -228,9 +255,9 @@ function RendererAdhoc(dc) {
 		let lineWidth = w/6;
 		dc.save();
 		dc.shadowColor='rgba(0,0,0,0.4)';
-		dc.shadowOffsetX = lineWidth/2;
-		dc.shadowOffsetY = lineWidth/2;
-		dc.shadowBlur = lineWidth/2;
+		dc.shadowOffsetX = lineWidth*0.7;
+		dc.shadowOffsetY = lineWidth*0.7;
+		dc.shadowBlur = lineWidth*0.7;
 		dc.fillStyle = MD.Party[party].color;
 		dc.fillRect(x,y, w, h);
 		dc.restore();
@@ -244,3 +271,69 @@ function RendererAdhoc(dc) {
 		dc.restore();
 	}
 }
+
+//--- terrain shader -----------------------------------------------
+
+var terrainShader = {
+	forest: function(dc, x,y,radius,seed) {
+		if(radius<20)
+			return;
+		var rnd = new Math.seedrandom(seed);
+		const rx = radius*0.75, ry = Math.sin(Math.PI/3)*radius;
+		const rMin = 1.5, rMax=5;
+		const delta = 2*rMax, cRange=delta-2*rMin;
+		dc.strokeStyle = 'rgba(115,170,130,0.7)';
+		for(let cy=y-ry; cy<y+ry; cy+=delta)
+			for(let cx=x-rx; cx<x+rx; cx+=delta) {
+				let treeX = cx+rMin+rnd()*cRange, treeY =cy+rMin*rnd()*cRange;
+				if(treeY>=y+ry || treeX>=x+rx)
+					continue;
+				dc.strokeCircle(treeX, treeY,rMin+rnd()*(rMax-rMin));
+			}
+		//dc.strokeStyle = 'rgb(127,127,127)';
+		//dc.strokeRect(x-rx,y-ry, 2*rx,2*ry);
+	},
+	water_disabled: function(dc, x,y,radius,seed) {
+		var rnd = new Math.seedrandom(seed);
+		const rx = radius*0.7, ry = Math.sin(Math.PI/3)*radius;
+		dc.save();
+		dc.strokeStyle = 'rgba(255,255,255,0.5)';
+		dc.lineWidth = 1.5;
+		for(let i=0, end=Math.round(radius*radius/250); i<end; ++i) {
+			let waveX = cx-rx+rnd()*2*rx, waveY =cy-ry+rnd()*2*ry, l=rnd()*4;
+			dc.strokeLine(waveX, waveY,waveX+l,waveY);
+		}
+		dc.restore();
+	},
+	settlement: function(dc, x,y,radius,seed) {
+		if(radius<20)
+			return;
+		var rnd = new Math.seedrandom(seed);
+		const rx = radius*0.8, ry = Math.sin(Math.PI/3)*radius*0.8;
+		const rMin = 1, rMax=2.5;
+		const delta = 2*rMax, cRange=delta-2*rMin;
+		const distMaxSqr = Math.pow(radius*0.7,2);
+		dc.fillStyle = '#cea898';
+		for(let cy=y-ry; cy<y+ry; cy+=delta)
+			for(let cx=x-rx; cx<x+rx; cx+=delta) {
+				let posX = cx+rMin+rnd()*cRange, posY =cy+rMin*rnd()*cRange;
+				let w = rMin+rnd()*(rMax-rMin), h = rMin+rnd()*(rMax-rMin);
+				if(Math.pow(posY-y,2)+Math.pow(posX-x,2)>distMaxSqr)
+					continue;
+				dc.fillRect(posX-w, posY-h,2*w,2*h);
+			}
+	},
+	update_disabled: function(mapView) {
+		if(Math.floor(Date.now()%25)!=0)
+			return false;
+		for(var x=0; x<mapView.width; ++x) {
+			for(var y=0; y<mapView.height; ++y) {
+				var tile = mapView.get(x,y);
+				var terrain = tile.terrain;
+				if(terrain == WATER && tile.color!==null && Math.random()>0.9)
+					tile.color = (new Color(MD.Terrain[terrain].color)).variegate(3).rgbString();
+			}
+		}
+		return true;
+	}
+};

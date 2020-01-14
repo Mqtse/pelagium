@@ -46,6 +46,20 @@ function ProductionController(selector, unitColor, callback) {
 		}
 		return this;
 	}
+	this.setDelta = function(delta) {
+		var i=0;
+		for(var end=element.children.length; i<end; ++i) {
+			var child = element.children[i];
+			var toolId = child.dataset.id;
+			if(toolId == this.production)
+				break;
+		}
+		i = (i+element.children.length+delta)%element.children.length;
+		var toolId = element.children[i].dataset.id;
+		this.setProduction(toolId);
+		return toolId;
+	}
+
 	this.setVisible = function(id, isVisible) {
 		if(isVisible === undefined)
 			isVisible = true;
@@ -57,6 +71,9 @@ function ProductionController(selector, unitColor, callback) {
 			break;
 		}
 		return this;
+	}
+	this.visible = function() {
+		return element.style.display != 'none';
 	}
 
 	for(let id in MD.Unit) {
@@ -123,7 +140,6 @@ client = {
 
 		window.onresize = ()=>{ this.resize(); }
 		window.oncontextmenu = (e)=>{ return false; }
-		eludi.addPointerEventListener(this.foreground, (event)=>{ this.handlePointerEvent(event); });
 		eludi.addWheelEventListener((event)=>{ this.viewZoomStep(-event.deltaY, event.x, event.y); });
 		eludi.addKeyEventListener(window, (event)=>{ this.handleKeyEvent(event); });
 
@@ -158,6 +174,8 @@ client = {
 		this.consistencyState = { turn:this.turn, ordersSent:false, state:this.state };
 		this.cache = new Cache('pelagium/client', this.credentials.id);
 		this.cache.removeItem('/sim');
+		if(credentials.mode=='start')
+			this.cache.removeItem('/orders');
 		this.workers = [];
 		this.renderer = new RendererAdhoc(
 			this.foreground.dc, 2*this.settings.scales[this.settings.scales.length-1]);
@@ -172,6 +190,9 @@ client = {
 			this.spawnAI(aiOpponents);
 		this.autoPilot = this.isDemo ? this.spawnAI(this.credentials.id, this.party, true) : null;
 
+		let mapReceptor = this.isTutorial ?
+			document.getElementById('tut_map') : this.foreground;
+		eludi.addPointerEventListener(mapReceptor, (event)=>{ this.handlePointerEvent(event); });
 		this.btnMain = new ButtonController('#toolbar_main', (evt)=>{
 			if(this.isTutorial)
 				this.emit(evt.type, evt); // handle by tutorial
@@ -226,13 +247,17 @@ client = {
 	},
 
 	close: function(saveMatch, params) {
+		const baseUrl = (document.referrer && document.referrer!=document.URL) ?
+			document.referrer : 'index.html';
 		if(saveMatch && this.state!='over') {
 			if(!this.isSimOnClient)
 				return this.modalPopup('resume id: '+this.credentials.id, ['OK'],
 					()=>{ eludi.openUrl(baseUrl, params, false); });
+			if(!this.isTutorial && !this.isDemo)
 				this.cache.setItem('/sim', this.sim._serialize());
 		}
-		eludi.openUrl(baseUrl, params, false);
+		this.transition = new TransitionFade();
+		setTimeout(()=>{ eludi.openUrl(baseUrl, params, false); }, 400);
 	},
 
 	on: function(event, callback) {
@@ -273,8 +298,11 @@ client = {
 			this.vp.offsetY = 0;
 		}
 		if(!scaleOnly) {
-			this.background.width = this.foreground.width = width;
-			this.background.height = this.foreground.height = height;
+			let pixelRatio = this.vp.pixelRatio = window.devicePixelRatio || 1;
+			this.background.width = this.foreground.width = width * pixelRatio;
+			this.background.height = this.foreground.height = height * pixelRatio;
+			this.background.dc.scale(pixelRatio, pixelRatio);
+			this.foreground.dc.scale(pixelRatio, pixelRatio);
 		}
 		this.vp.width = Math.ceil(1.25+width/this.vp.cellMetrics.w);
 		this.vp.height = Math.ceil(1.5+height/this.vp.cellMetrics.h);
@@ -296,6 +324,35 @@ client = {
 		}
 	},
 
+	menuVisible: function() {
+		var elem = document.getElementById('menus');
+		return elem.style.display == '';
+	},
+	menuSetDelta: function(delta) {
+		let allItems = document.getElementById('main_menu').children;
+		let items=[], selIndex = -1;
+		for(let i=0; i<allItems.length; ++i) {
+			if(allItems[i].style.display=='none')
+				continue;
+			if(allItems[i].classList.contains('selected')) {
+				selIndex = items.length;
+				allItems[i].classList.remove('selected');
+			}
+			items.push(allItems[i]);
+		}
+		if(selIndex == -1 && delta<=0)
+			selIndex=0;
+		selIndex = (selIndex+items.length+delta)%items.length;
+		items[selIndex].classList.add('selected');
+		console.log('menuSetDelta('+delta+') selIndex:', selIndex);
+	},
+	menuValue: function() {
+		let items=document.getElementById('main_menu').children;
+		for(let i=0; i<items.length; ++i)
+			if(items[i].style.display!='none' && items[i].classList.contains('selected'))
+				return items[i].dataset.id;
+		return '';
+	},
 	toggleMenu: function(onOrOff) {
 		var elem = document.getElementById('menus');
 		if(onOrOff===undefined)
@@ -303,8 +360,13 @@ client = {
 		else
 			elem.style.display = onOrOff ? '' : 'none';
 
-		if(elem.style.display == '')
+		if(elem.style.display == '') {
+			document.querySelectorAll('#main_menu > *').forEach((item)=>{
+				item.classList.remove('selected');
+			});
 			document.getElementById('info_panel').style.display = 'none';
+			this.btnMain.setFocus(false);
+		}
 		else if(this.showInfo)
 			this.toggleInfo(true);
 	},
@@ -398,11 +460,43 @@ client = {
 		}
 	},
 
+	handleModalPopupKeyEvent: function(event) {
+		let choices = this.modalPopupChoices();
+		switch(event.which || event.keyCode) {
+		case 9: // tab
+		case 27: // escape
+		case 10009: // RETURN on Samsung remote control
+			this.modalPopupTrigger(choices[choices.length-1].dataset.id);
+			break;
+		case 13: // enter
+		case 32: // space
+			if(choices.length==1)
+				this.modalPopupTrigger(choices[0].dataset.id);
+			break;
+		case 37: // left
+			if(choices.length==2)
+				this.modalPopupTrigger(choices[0].dataset.id);
+			break;
+		case 39: // right
+			if(choices.length==2)
+				this.modalPopupTrigger(choices[choices.length-1].dataset.id);
+			break;
+		default:
+			return;
+		}
+		event.preventDefault();
+	},
+
 	handleKeyEvent: function(event) {
+		if(this.modalPopupVisible())
+			return this.handleModalPopupKeyEvent(event);
+
 		var currentCursor = ()=>{
-			if(!this.cursor)
+			if(!this.cursor || !this.isInsideViewport(this.cursor, 1))
 				this.cursor = { x:this.vp.x + Math.floor(this.vp.width/2),
-					y:this.vp.y + +Math.floor(this.vp.height/2) };
+					y:this.vp.y + +Math.floor(this.vp.height/2), visible:true };
+			else
+				this.cursor.visible = true;
 			return this.cursor;
 		}
 		var which = event.which || event.keyCode;
@@ -413,15 +507,37 @@ client = {
 		case 9: // tab
 		case 27: // escape
 		case 10009: // RETURN on Samsung remote control
-			console.log('switch input target');
-			this.btnMain.setFocus(true);
-			// todo
+			if(this.menuVisible()) {
+				this.toggleMenu(false);
+				currentCursor();
+			}
+			else if(this.toolbarProduction.visible()) {
+				eludi.switchToSibling('toolbar_main');
+			}
+			else if(this.btnMain.hasFocus()) {
+				this.btnMain.setFocus(false);
+				this.toggleMenu(true);
+				this.menuSetDelta(0);
+			}
+			else {
+				this.btnMain.setFocus(true);
+				if(this.cursor)
+					this.cursor.visible = false;
+			}
+			event.preventDefault();
 			return;
 		case 13: // enter
 		case 32: // space
-			if(!this.cursor || this.isTutorial)
+			if(this.btnMain.hasFocus())
+				this.btnMain.trigger();
+			else if(this.menuVisible()) {
+				let evt = this.menuValue();
+				if(evt)
+					this.handleUIEvent({type:evt});
+			}
+			else if(!this.cursor || !this.cursor.visible)
 				currentCursor();
-			else
+			else if(!this.isTutorial)
 				this.handleMapInput('click', this.cursor.x, this.cursor.y);
 			event.preventDefault();
 			break;
@@ -430,20 +546,38 @@ client = {
 		case 34: // pgdown
 			return this.viewZoomStep(1);
 		case 37: // left
-			--currentCursor().x;
-			this.updateCursorInfo();
+			if(!this.toolbarProduction.visible() && !this.menuVisible()) {
+				--currentCursor().x;
+				this.updateCursorInfo();
+			}
 			break;
 		case 38: // up
-			--currentCursor().y;
-			this.updateCursorInfo();
+			if(this.toolbarProduction.visible())
+				this.handleProductionInput(this.toolbarProduction.setDelta(-1),
+					this.cursor.x, this.cursor.y);
+			else if(this.menuVisible())
+				this.menuSetDelta(-1);
+			else {
+				--currentCursor().y;
+				this.updateCursorInfo();
+			}
 			break;
 		case 39: // right
-			++currentCursor().x;
-			this.updateCursorInfo();
+			if(!this.toolbarProduction.visible() && !this.menuVisible()) {
+				++currentCursor().x;
+				this.updateCursorInfo();
+			}
 			break;
 		case 40: // down
-			++currentCursor().y;
-			this.updateCursorInfo();
+			if(this.toolbarProduction.visible())
+				this.handleProductionInput(this.toolbarProduction.setDelta(+1),
+					this.cursor.x, this.cursor.y);
+			else if(this.menuVisible())
+				this.menuSetDelta(+1);
+			else {
+				++currentCursor().y;
+				this.updateCursorInfo();
+			}
 			break;
 		case 122: // F11
 			return this.toggleFullScreen();
@@ -502,7 +636,8 @@ client = {
 	handleMapInput: function(type, cellX, cellY) {
 		if(this.state!='input')
 			return;
-		this.cursor = { x:cellX, y:cellY };
+		this.btnMain.setFocus(false);
+		this.cursor = { x:cellX, y:cellY, visible:true };
 		if(this.selUnit && this.isSelected(cellX, cellY) && !this.selUnit.origin
 			&& !(this.selUnit.animation && this.selUnit.animation.type=='move'))
 		{
@@ -721,7 +856,7 @@ client = {
 	},
 	restoreOrders: function() {
 		var cachedOrders = this.cache.getItem('/orders');
-		if(!cachedOrders)
+		if(!cachedOrders || this.isDemo || this.isTutorial)
 			return;
 		if(cachedOrders.turn != this.turn)
 			return this.cache.removeItem('/orders');
@@ -736,7 +871,7 @@ client = {
 			}
 			else if(order.type=='move') {
 				var origin = this.mapView.get(order.from_x, order.from_y);
-				var unit = origin.unit;
+				var unit = origin ? origin.unit : null;
 				if(!unit || unit.id != order.unit || this.party != unit.party.id)
 					return;
 				delete origin.unit;
@@ -831,13 +966,13 @@ client = {
 		var fastMode = (this.panning || this.pinch) ? true : false;
 		var vp = this.vp;
 
-		this.foreground.dc.clearRect(0, 0, this.foreground.width, this.foreground.height);
+		this.foreground.dc.clearRect(0, 0, this.foreground.width/vp.pixelRatio, this.foreground.height/vp.pixelRatio);
 
 		if(this.redrawMap && this.mapView) { // background:
 			if(typeof this.redrawMap === 'object')
 				this.drawTile(this.redrawMap.x, this.redrawMap.y);
 			else {
-				this.background.dc.clearRect(0, 0, this.background.width, this.background.height);
+				this.background.dc.clearRect(0, 0, this.background.width/vp.pixelRatio, this.background.height/vp.pixelRatio);
 				MapHex.draw(this.background, this.mapView, vp, this.vp.cellMetrics, this.fov, fastMode);
 			}
 			this.redrawMap = false;
@@ -864,7 +999,9 @@ client = {
 			for(var i=this.selection.length; i--; )
 				this.drawSelTile(dc, this.selection[i]);
 
-		if(this.cursor && this.isInsideViewport(this.cursor) && (!this.selUnit || this.cursor.x!=this.selUnit.x || this.cursor.y!=this.selUnit.y)) {
+		if(this.cursor && this.cursor.visible && this.isInsideViewport(this.cursor)
+			&& (!this.selUnit || this.cursor.x!=this.selUnit.x || this.cursor.y!=this.selUnit.y))
+		{
 			var center = this.vp.mapToScreen(this.cursor);
 			var lineWidth = this.vp.cellMetrics.r/8;
 			var r = 0.5*this.vp.cellMetrics.h-0.5*lineWidth;
@@ -1094,7 +1231,7 @@ client = {
 				this.orders = [];
 				this.cache.removeItem('/orders');
 				this.consistencyState.ordersSent = false;
-				if(this.isSimOnClient)
+				if(this.isSimOnClient && !this.isTutorial && !this.isDemo)
 					this.cache.setItem('/sim', this.sim._serialize());
 			}
 			this.updateProduction(newTurn - this.turn);
@@ -1146,6 +1283,7 @@ client = {
 	},
 	handleInconsistencyEvent: function(evt) {
 		if(evt.type=='getSituation') {
+			this.turn = evt.turn;
 			this.sim.getSituation(this.party, null, (data)=>{
 				this.handleSituation(data); });
 		}
@@ -1169,8 +1307,8 @@ client = {
 			this.selUnit = selUnitId ? this.units[selUnitId] : null;
 			if(this.selUnit)
 				this.selUnit.animation = new AnimationSelected(this.time, this.selUnit);
-			else
-				this.cursor = null;
+			else if(this.cursor)
+				this.cursor.visible = false;
 			this.btnMain.setMode('fwd').setBackground(MD.Party[this.party].color);
 			var msg = 'turn '+this.turn;
 
@@ -1206,7 +1344,8 @@ client = {
 			break;
 
 		case 'replay':
-			this.cursor = null;
+			if(this.cursor)
+				this.cursor.visible = false;
 			this.setInfo();
 			if(this.isDemo)
 				this.btnMain.setMode('exit');
@@ -1229,7 +1368,13 @@ client = {
 
 			this.btnMain.setMode('exit');
 			this.hideMenuItem('joinCredentials').hideMenuItem('suspend').hideMenuItem('capitulate');
-			this.displayStatus('GAME OVER.');
+			let status = 'GAME OVER.';
+			for(let i=0; i<params.winners.length; ++i)
+				if(params.winners[i]==this.credentials.party) {
+					status = 'VICTORY!';
+					break;
+				}
+			this.displayStatus(status);
 			break;
 		}
 		default:
@@ -1320,9 +1465,11 @@ client = {
 		var popup = document.getElementById('popup');
 		if(!msg) {
 			popup.style.display = 'none';
+			popup.callback = null;
 			return;
 		}
 		this.toggleMenu(false);
+		popup.callback = callback;
 		popup.firstElementChild.firstElementChild.innerHTML = msg;
 
 		var ul = popup.firstElementChild.lastElementChild;
@@ -1333,16 +1480,31 @@ client = {
 			var item = document.createElement('li');
 			item.appendChild(document.createTextNode(choices[i]));
 			item.dataset.id = i;
-			item.onclick = function(event) {
-				popup.style.display = 'none';
-				if(callback)
-					callback(event.target.dataset.id);
-			}
+			item.onclick = (evt)=>{ this.modalPopupTrigger(evt.target.dataset.id) };
 			ul.appendChild(item);
 			items.push(item);
 		}
 		eludi.click2touch(items);
 		popup.style.display = '';
+	},
+	modalPopupVisible: function() {
+		return document.getElementById('popup').style.display==='';
+	},
+	modalPopupChoices: function() {
+		let popup = document.getElementById('popup');
+		if(popup.style.display!=='')
+			return null;
+		return popup.firstElementChild.lastElementChild.children;
+	},
+	modalPopupTrigger: function(id) {
+		let popup = document.getElementById('popup');
+		if(popup.style.display!=='')
+			return;
+		popup.style.display = 'none';
+		if(popup.callback) {
+			popup.callback(id);
+			popup.callback = null;
+		}
 	},
 
 	checkSimOnClient: function() {
@@ -1391,6 +1553,8 @@ window.addEventListener("load", ()=>{
 		for (let i = 0, all=document.querySelectorAll('.noselect'); i < all.length; ++i)
 			all[i].addEventListener("touchmove", (evt)=>{ evt.preventDefault() });
 });
+let fadeIn = new TransitionFade('black',1.0,0.0);
+setTimeout(()=>{ delete fadeIn; }, 600);
 
 if(!client.checkSimOnClient())
 	eludi.loadjs("/static/sim_proxy.js");

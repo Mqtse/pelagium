@@ -9,7 +9,7 @@ var MD = {
 	Terrain: [
 		{
 			id:0,
-			color:'rgb(153,179,205)',
+			color:'hsl(207,30%,72%)',//'rgb(153,179,205)',
 			name:'water',
 			concealment:false,
 			defend: 1,
@@ -25,7 +25,7 @@ var MD = {
 		},
 		{
 			id:2,
-			color:'rgb(192,215,173)',
+			color:'rgb(195,205,173)',//'rgb(192,215,173)',
 			name:'forest',
 			concealment:true,
 			defend: 1.5,

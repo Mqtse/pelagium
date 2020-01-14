@@ -3,10 +3,7 @@ if(typeof require !== 'undefined') {
 	MD = require('./masterdata');
 	createTerrain = require('../terrainGenerator');
 }
-else {
-	baseUrl = (location.origin ? location.origin : '') + '/pelagium';
-	createTerrain = null;
-}
+else createTerrain = null;
 
 //------------------------------------------------------------------
 /// hexagonal matrix class
@@ -420,7 +417,7 @@ MapHex.finalizeAppearance = function(page) {
 	for(var x=0; x<page.width; ++x) for(var y=0; y<page.height; ++y) {
 		var tile = page.get(x,y);
 		if(tile.terrain==MD.FOREST)
-			tile.color = (new Color(MD.Terrain[tile.terrain].color)).variegate(6).rgbString();
+			tile.color = (new Color(MD.Terrain[tile.terrain].color)).variegate(7).rgbString();
 		else if(tile.terrain==MD.PLAIN)
 			tile.color = (new Color(MD.Terrain[tile.terrain].color)).variegate(4).rgbString();
 
@@ -434,6 +431,8 @@ MapHex.finalizeAppearance = function(page) {
 			}
 			if(!nb)
 				tile.color=null;
+			else
+				tile.color = (new Color(MD.Terrain[tile.terrain].color)).variegate(3).rgbString();
 		}
 	}
 }
@@ -457,8 +456,8 @@ MapHex.draw = function(canvas, map, vp, cellMetrics, fieldOfView, fastMode) {
 	var dc = canvas.getContext('2d');
 	if(fieldOfView && !fastMode) { // fog of war
 		fogOfWar = document.createElement('canvas');
-		var width = fogOfWar.width = canvas.width*fowScale;
-		var height = fogOfWar.height = canvas.height*fowScale;
+		var width = fogOfWar.width = canvas.width*fowScale/vp.pixelRatio;
+		var height = fogOfWar.height = canvas.height*fowScale/vp.pixelRatio;
 		var ctx = fogOfWar.dc = extendCanvasContext(fogOfWar.getContext('2d'));
 		ctx.fillStyle='rgba(0,0,0,0.2)';
 		ctx.fillRect(0,0, width, height);
@@ -489,8 +488,28 @@ MapHex.draw = function(canvas, map, vp, cellMetrics, fieldOfView, fastMode) {
 				fogOfWar.dc.hex(cx*fowScale, cy*fowScale, fowRadius, { fillStyle:'white' });
 		}
 	}
+
+	if(!fastMode) { // terrain details:
+		dc.lineWidth = 1.5;
+		for(var x=Math.max(0,vp.x), xEnd=Math.min(vp.x+vp.width, map.width); x<xEnd; ++x) {
+			var offsetX = vp.offsetX ? vp.offsetX : 0;
+			var offsetY = vp.offsetY ? vp.offsetY : 0;
+			if(x%2)
+				offsetY+=0.5*cellMetrics.h;
+			for(var y=Math.max(0,vp.y), yEnd=Math.min(vp.y+vp.height, map.height); y<yEnd; ++y) {
+				var tile = map.get(x,y);
+				var shader = terrainShader[MD.Terrain[tile.terrain].name];
+				if(!shader)
+					continue;
+				var cx = (x-vp.x)*cellMetrics.w+offsetX, cy = (y-vp.y)*cellMetrics.h+offsetY;
+				var seed = x + map.width*y;
+				shader(dc, cx, cy, cellMetrics.r-fowMargin, seed);
+			}
+		}
+	}
+
 	if(fogOfWar)
-		dc.drawImage(fogOfWar, 0,0, canvas.width, canvas.height);
+		dc.drawImage(fogOfWar, 0,0, canvas.width/vp.pixelRatio, canvas.height/vp.pixelRatio);
 }
 
 //--- Unit ---------------------------------------------------------

@@ -76,7 +76,7 @@
 		let enemy = null;
 		this.steps = [
 			(immediate)=>{
-				self.caption("Welcome to one of the scenic islands of pelagium!");
+				self.caption("Welcome to the scenic islands of pelagium!");
 				if(!immediate)
 					client.viewCenter(10,8);
 				//self.at(2.0, ()=>{ client.viewZoom(1.5, 10,10); });
@@ -103,41 +103,41 @@
 			(immediate)=>{
 				client.deselectUnit();
 				client.handleMapInput('click', 6, 6);
-				self.caption("There are three different types of units: infrantry, cavalry, artillery.");
-				self.at(immediate ? 0.0 : 1.0, ()=>{
+				self.caption("There are three different types of units: infantry, cavalry, artillery.");
+				self.at(immediate ? 0.0 : 2, ()=>{
 					self.tooltip(window.innerWidth-64,window.innerHeight-152, 'infantry', {align:'right-bottom'});
 				});
-				self.at(immediate ? 0.0 : 1.5, ()=>{
+				self.at(immediate ? 0.0 : 3, ()=>{
 					self.tooltip(window.innerWidth-64,window.innerHeight-96, 'cavalry', {align:'right-bottom'});
 				});
-				self.at(immediate ? 0.0 : 2.0, ()=>{
+				self.at(immediate ? 0.0 : 4, ()=>{
 					self.tooltip(window.innerWidth-64,window.innerHeight-48, 'artillery', {align:'right-bottom'});
 				});
 			},
 			()=>{
-				self.caption("Each unit types has its particular strengths and weaknesses.");
+				self.caption("Each unit type has its particular strengths and weaknesses.");
 				client.handleMapInput('click', 5, 5);
-				self.tooltip(5,5, "infantry<br/>(+defense)", {mapSpace:true, align:'right', duration:2});
-				self.at(2.0, ()=>{ 
+				self.tooltip(5,5, "infantry<br/>(+defense)", {mapSpace:true, align:'right', duration:1.5});
+				self.at(1.5, ()=>{ 
 					client.handleMapInput('click', 5, 6);
-					self.tooltip(5,6, "artillery<br/>(+support)", {mapSpace:true, align:'right', duration:2});
+					self.tooltip(5,6, "artillery<br/>(+support)", {mapSpace:true, align:'right', duration:1.5});
 				});
-				self.at(4.0, ()=>{
+				self.at(3.0, ()=>{
 					client.handleMapInput('click', 6, 7);
-					self.tooltip(6,7, "cavalry<br/>(+attack)", {mapSpace:true, align:'left', duration:2});
+					self.tooltip(6,7, "cavalry<br/>(+attack)", {mapSpace:true, align:'left', duration:1.5});
 				});
-				self.at(6.0, ()=>{ self.step(0); });
+				self.at(4.5, ()=>{ self.step(0); });
 			},
 			(immediate)=>{
 				self.caption(tapOrClick+" on one of your units lets you see its properties and field of movement.");
 				client.deselectUnit();
 				client.handleMapInput('click', 6, 7);
 				self.tooltip(6, 7, 'selected</br>unit', {mapSpace:true, align:'left'});
-				self.at(immediate ? 0.0 : 1.0, ()=>{
-					self.tooltip(6, 9, 'dotted =</br>reachable', {mapSpace:true, align:'right'});
-				});
-				self.at(immediate ? 0.0 : 2.0, ()=>{
+				self.at(immediate ? 0.0 : 1.5, ()=>{
 					self.tooltip(160, window.innerHeight-112, 'unit<br/>properties', {align:'left'});
+				});
+				self.at(immediate ? 0.0 : 3.0, ()=>{
+					self.tooltip(6, 9, 'dotted =</br>reachable', {mapSpace:true, align:'right'});
 				});
 			},
 			()=>{
@@ -148,7 +148,7 @@
 					client.handleMapInput('click', 8, 8);
 			},
 			(immediate)=>{
-				self.caption("When you are done with giving orders, press on the button \"next turn.\"");
+				self.caption("When you are done with giving orders, press on the button \"next turn\".");
 				client.handleMapInput('click', 7, 6);
 				if(client.selUnit)
 					client.handleMapInput('click', 7, 8);
@@ -188,9 +188,9 @@
 			},
 			()=>{
 				self.caption("Nearby units of the same party may support their comrades.");
-				self.tooltip(7, 8, 'support<br/>(blue)', {mapSpace:true, align:'right', duration:2});
-				self.tooltip(6, 7, 'support<br/>(blue)', {mapSpace:true, align:'right', duration:2});
-				self.at(2.0, ()=>{
+				self.tooltip(7, 8, 'support<br/>(blue)', {mapSpace:true, align:'right', duration:1.5});
+				self.tooltip(6, 7, 'support<br/>(blue)', {mapSpace:true, align:'right', duration:1.5});
+				self.at(1.5, ()=>{
 					self.tooltip(9, 7, 'support<br/>(red)', {mapSpace:true, align:'left'});
 				});
 				self.at(4.0, ()=>{ self.step(0); });
@@ -199,23 +199,23 @@
 				self.caption("Also the terrain has a significant effect on the battle's outcome.");
 				client.deselectUnit();
 				client.handleMapInput('click', 6, 8);
-				self.tooltip(6, 8, 'plain', {mapSpace:true, align:'right', duration:2});
+				self.tooltip(6, 8, 'plain', {mapSpace:true, align:'right', duration:1.5});
 				self.tooltip(192, window.innerHeight-105, 'terrain<br/>properties', {align:'left'});
 				
-				self.at(2, ()=>{
+				self.at(1.5, ()=>{
 					client.deselectUnit();
 					client.handleMapInput('click', 9, 8);
-					self.tooltip(9, 8, 'forest<br/>(+defense)', {mapSpace:true, align:'left', duration:2});
+					self.tooltip(9, 8, 'forest<br/>(+defense)', {mapSpace:true, align:'left', duration:1.5});
 				});
-				self.at(4, ()=>{
+				self.at(3, ()=>{
 					client.deselectUnit();
 					client.handleMapInput('click', 8, 11);
 					self.tooltip(8, 11, 'settlement<br/>(++defense)', {mapSpace:true, align:'right'});
 				});
-				self.at(6, ()=>{ self.step(0); });
+				self.at(4.5, ()=>{ self.step(0); });
 			},
 			()=>{
-				self.caption("The engagement ends with one unit involved either retreating or surrendering.");
+				self.caption("The engagement ends with one unit involved either surrendering or retreating.");
 				if(window.innerHeight>window.innerWidth)
 					client.viewCenter(11,8);
 				if(enemy)
@@ -228,15 +228,15 @@
 				self.caption("Thus key for success is distributing forces in a way that they"
 					+ " optimally serve your strategic goals.");
 
-				self.at(immediate ? 0.0 : 1.0, ()=>{
+				self.at(immediate ? 0.0 : 1.5, ()=>{
 					self.arrow(6,6, 8,8, {mapSpace:true});
 					self.tooltip(8, 8, 'step 1:<br/>defend', {mapSpace:true, align:'left'});
 				});
-				self.at(immediate ? 0.0 : 2.0, ()=>{
+				self.at(immediate ? 0.0 : 3.0, ()=>{
 					self.arrow(8,8, 8,11, {mapSpace:true});
 					self.tooltip(8, 11, 'step 2:<br/>secure', {mapSpace:true, align:'right'});
 				});
-				self.at(immediate ? 0.0 : 3.0, ()=>{
+				self.at(immediate ? 0.0 : 4.5, ()=>{
 					self.arrow(8,11, 12,12, {mapSpace:true});
 					self.tooltip(12, 12, 'step 3:<br/>victory!', {mapSpace:true, align:'left'});
 				});

@@ -5,14 +5,14 @@
 		<meta charset="ISO-8859-15">
 		<meta name="author" content="Gerald Franz"/>
 		<meta name="description" content="turn-based strategy game"/>
-		<meta name="keywords" content="water world,HTML5,javascript"/>
+		<meta name="keywords" content="water world,hex grid,HTML5,javascript"/>
 		<meta name="theme-color" content="#cadacf"/>
 
 		<meta name="viewport" content="user-scalable=no, width=device-width" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="white" />
-		<link rel="apple-touch-icon" href="/static/icon_island256.png" />
-		<link rel="icon" sizes="192x192" href="/static/icon_island192.png" />
+		<link rel="apple-touch-icon" sizes="180x180" href="/static/pelagium_icon.180.png" />
+		<link rel="icon" sizes="192x192" href="/static/pelagium_icon.192.png" />
 		<link rel="shortcut icon" href="/static/favicon.ico" />
 		<link rel="manifest" href="/static/manifest.json" />
 		<link href='/static/fonts.css' rel='stylesheet' type='text/css'>
@@ -20,6 +20,7 @@
 		<style type="text/css">
 body {
 	--text-color-default: rgba(0,0,0,0.5);
+	--text-color-disabled: rgba(85,85,85,0.5);
 	--text-color-select: rgba(255,255,255,0.8);
 	--text-color-heading: white;
 }
@@ -41,9 +42,12 @@ html, body {
 
 #screens {
 	height:100%;
-	display:flex;
+	display: flex;
 	align-items: center;
 	z-index:3;
+}
+#screens > * {
+	display: none;
 }
 
 @media (orientation: landscape) {
@@ -88,7 +92,7 @@ html, body {
 	-webkit-user-select: none;
 }
 
-#screens li:hover {
+#screens li:hover:not(.disabled):not(.party) {
 	cursor: pointer;
 	color:var(--text-color-select);
 }
@@ -100,6 +104,11 @@ a {
 a:hover, ul.footer a:hover  {
 	cursor: pointer;
 	color:white;
+}
+
+.disabled, .disabled:hover {
+	cursor: initial;
+	color: var(--text-color-disabled);
 }
 
 h2 {
@@ -297,7 +306,7 @@ if ('serviceWorker' in navigator) { /*
 		.catch(err => console.error('Error', err)); */
 }
 
-let StatsTable = function(table) {
+function StatsTable(table) {
 	this.colName = function(col, value) {
 		return this.set(0, col, value)
 	}
@@ -348,7 +357,8 @@ app = {
 		return true;
 	},
 	openUrl: function(url, params) {
-		eludi.openUrl(url, params, false);
+		this.transition = new TransitionFade();
+		setTimeout(()=>{ eludi.openUrl(url, params, false); }, 400);
 	},
 	//--- specific functionality ---
 	init: function(params) {
@@ -359,19 +369,43 @@ app = {
 		} catch(err) {
 			console.error(err);
 		}
-		http.get('/pelagium/scenarios', null, function(data, code) {
-			if(code!=200)
-				return console.error('loading scenario data failed', code, data);
-			this.addScenarios(data);
-		}, this);
-
-		if(params.screen) {
-			this.screen(params.screen);
-			if(typeof this[params.screen] == 'function')
-				this[params.screen](params);
-		}
 		this.fillTerrainTable();
 		this.fillUnitTable();
+
+		let finalizeInit = (params)=>{
+			if(typeof this[params.screen] == 'function')
+				this[params.screen](params);
+			this.screen('screen' in params ? params.screen : 'main');
+		}
+
+		http.get('/pelagium/scenarios', null, (data, code)=>{
+			if(code==200) {
+				this.addScenarios(data);
+				finalizeInit(params);
+			}
+			else {
+				console.info('loading scenario data failed:', code, '-> running serverless');
+				this.serverless = true;
+
+				document.querySelectorAll('.multiplayer').forEach((item)=>{
+					item.style.display = 'none';
+				});
+
+				let itemResume = document.querySelector('#main_resume');
+				if(localStorage && localStorage.getItem('pelagium/client_/sim'))
+					itemResume.onclick = ()=>{ this.resume(); };
+				else {
+					itemResume.classList.add('disabled');
+					itemResume.onclick = ()=>{ };
+				}
+
+				Sim = {};
+				eludi.loadjs('builtinScenarios.js', ()=>{
+					this.addScenarios(Sim.scenarios);
+					finalizeInit(params);
+				});
+			}
+		});
 	},
 	drawMap: function(canvas, data) {
 		var dc = canvas.getContext('2d');
@@ -415,6 +449,8 @@ app = {
 
 		let parent = document.getElementById("scenarios");
 		for(let id in data) {
+			if(data[id].visibility=='hidden')
+				continue;
 			let li = parent.firstChild.cloneNode(true);
 			li.style.display='';
 			li.dataset.id = id;
@@ -438,6 +474,8 @@ app = {
 		}
 		if(scenario) {
 			params.scenario = scenario;
+			if(localStorage)
+				localStorage.removeItem('pelagium/client_/sim');
 			this.openUrl('/static/pelagium.html', params);
 		}
 	},
@@ -465,6 +503,23 @@ app = {
 					el.classList.remove(classId);
 			parent.dataset.value = elem.dataset.value;
 		};
+
+		const swapChildren = (node1, node2)=>{
+			let children1 = [], children2 = [];
+			for(let i=0; i<node1.childElementCount; ++i)
+				children1.push(node1.children[i].cloneNode(true));
+			for(let i=0; i<node2.childElementCount; ++i)
+				children2.push(node2.children[i].cloneNode(true));
+			while(node1.lastChild)
+				node1.removeChild(node1.lastChild);
+			while(node2.lastChild)
+				node2.removeChild(node2.lastChild);
+			for(let i=0; i<children2.length; ++i)
+				node1.appendChild(children2[i]);
+			for(let i=0; i<children1.length; ++i)
+				node2.appendChild(children1[i]);
+		}
+
 		let screen = document.getElementById("screen_config");
 		screen.querySelector('h2').innerHTML = screen.dataset.id = scenId;
 
@@ -486,7 +541,16 @@ app = {
 			let radioPartyType = li.querySelector('.party_player');
 			radioPartyType.addEventListener('click', (evt)=>{
 				if(evt.target.innerHTML=='you') {
-					// todo
+					let siblings = parent.querySelectorAll('.party_player');
+					let targetParent = evt.target.parentElement;
+					for(let i=0; i<siblings.length; ++i) {
+						if(siblings[i].dataset.value==0 && siblings[i]!=targetParent) {
+							swapChildren(siblings[i], targetParent);
+							siblings[i].dataset.value = targetParent.dataset.value;
+							targetParent.dataset.value = 0;
+							return;
+						}
+					}
 				}
 				switchClassId(evt.target);
 			});
@@ -521,7 +585,8 @@ app = {
 		if(selfFound!=1)
 			return alert('choose one color for you');
 		if(!opponentsFound)
-			return alert('choose at least one A.I. or human foe');
+			return alert('choose at least one A.I. '
+				+(this.serverless ? '' : 'or human')+' opponent');
 
 		return { scenario:scenId, parties:parties };
 	},
@@ -577,12 +642,12 @@ app = {
 		for(let id in params.stats) {
 			let party = params.stats[id];
 			table.colName(col, MD.Party[id].name);
-			table.set(1, col, party.objectives).progress(1, id, party.objectives/maxObjectives, MD.Party[id].color, opacity);
-			table.set(2, col, party.units).progress(2, id, party.units/maxUnits, MD.Party[id].color, opacity);
-			table.set(3, col, party.unitsBuilt).progress(3, id, party.unitsBuilt/maxUnitsBuilt, MD.Party[id].color, opacity);
-			table.set(4, col, party.victories || 0).progress(4, id, party.victories/(party.victories+party.defeats), MD.Party[id].color, opacity);
-			table.set(5, col, party.odds.toFixed(2)).progress(5, id, party.odds, MD.Party[id].color, opacity);
-			table.set(6, col, party.score).progress(6, id, party.score/maxScore, MD.Party[id].color, opacity);
+			table.set(1, col, party.objectives).progress(1, col, party.objectives/maxObjectives, MD.Party[id].color, opacity);
+			table.set(2, col, party.units).progress(2, col, party.units/maxUnits, MD.Party[id].color, opacity);
+			table.set(3, col, party.unitsBuilt).progress(3, col, party.unitsBuilt/maxUnitsBuilt, MD.Party[id].color, opacity);
+			table.set(4, col, party.victories || 0).progress(4, col, party.victories/(party.victories+party.defeats), MD.Party[id].color, opacity);
+			table.set(5, col, party.odds.toFixed(2)).progress(5, col, party.odds, MD.Party[id].color, opacity);
+			table.set(6, col, party.score).progress(6, col, party.score/maxScore, MD.Party[id].color, opacity);
 			++col;
 		}
 	},
@@ -634,6 +699,7 @@ app = {
 	close: function() {
 		window.close();
 	},
+	serverless: false,
 	scenarios: null
 }
 document.addEventListener("DOMContentLoaded", ()=>{
@@ -647,14 +713,14 @@ document.addEventListener("DOMContentLoaded", ()=>{
 		><div id="screens"
 			><ul id="screen_main"
 				><li class="l10n" onclick="app.screen('scenario');">start game</li
-				><li class="l10n" onclick="app.screen('resume');">resume</li
+				><li class="l10n" id="main_resume" onclick="app.screen('resume');">resume</li
 				><li class="l10n multiplayer" onclick="app.screen('join');">join game</li
 				><li class="l10n" onclick="app.demo();">demo</li
 				><li class="l10n" onclick="app.tutorial();">tutorial</li
 				><li class="l10n" onclick="app.screen('help');">about&hellip;</li
 			></ul
 
-			><div id="screen_help" style="display:none;"
+			><div id="screen_help"
 				><h2 class="l10n">about</h2
 				><div class="l10n">Pelagium is a fast-paced strategy game.
 					Secure all objectives against your opponents!
@@ -667,7 +733,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 				></ul
 			></div
 
-			><div id="screen_story" style="display:none;"
+			><div id="screen_story"
 				><h2 class="l10n">background</h2
 				><p>
 Once upon in time the formerly peaceful and scenic isles of Pelagium where shaken by
@@ -699,7 +765,7 @@ Good luck!
 				></ul
 			></div
 
-			><div id="screen_resume" style="display:none;"
+			><div id="screen_resume"
 				><h2 class="l10n">resume game</h2
 				><input type="text" id="resume_id" class="multiplayer" placeholder ="id" size="6" maxlength="6"
 					onkeypress="app.onEnter(event, function() { app.resume(); });"
@@ -709,7 +775,7 @@ Good luck!
 				></ul
 			></div
 
-			><div id="screen_join" style="display:none;"
+			><div id="screen_join"
 				><h2 class="l10n">join game</h2
 				><input type="text" id="join_id" placeholder ="id" size="6" maxlength="6"
 					onkeypress="app.onEnter(event, function() { app.join(); });"
@@ -719,7 +785,7 @@ Good luck!
 				></ul
 			></div
 
-			><div id="screen_scenario" style="display:none;"
+			><div id="screen_scenario"
 				><h2 class="l10n">start game</h2
 				><div id="custom_scenario" class="multiplayer"
 					><input type="text" id="scenario_id" placeholder="custom scenario" size="12" maxlength="20"
@@ -739,7 +805,7 @@ Good luck!
 				></ul
 			></div
 
-			><div id="screen_config" style="display:none;"
+			><div id="screen_config"
 				><h2 class="l10n">scenario configuration</h2
 				><canvas id="scenario_preview" width="240" height="240"></canvas
 				><ul id="parties"
@@ -760,7 +826,7 @@ Good luck!
 				><div class="vspace"></div
 			></div
 
-			><div id="screen_over" style="display:none;"
+			><div id="screen_over"
 				><h2 id="h_game_over" class="l10n">game over.</h2
 				><h2 id="h_victory" class="l10n" style="display:none;">victory!</h2
 				><div id="stats" class="stats"></div
@@ -769,7 +835,7 @@ Good luck!
 				></ul
 			></div
 
-			><div id="screen_help_units" style="display:none;"
+			><div id="screen_help_units"
 				><h2 class="l10n">units</h2
 				><div id="units" class="stats"></div
 				><ul
@@ -777,7 +843,7 @@ Good luck!
 				></ul
 			></div
 
-			><div id="screen_help_terrain" style="display:none;"
+			><div id="screen_help_terrain"
 				><h2 class="l10n">terrain</h2
 				><div id="terrain" class="stats"></div
 				><ul
@@ -785,9 +851,9 @@ Good luck!
 				></ul
 			></div
 
-			><div id="screen_credits" style="display:none;"
+			><div id="screen_credits"
 				><h2 class="l10n">credits</h2
-				><p class="l10n">Pelagium &copy; 2019 by <a href="https://eludi.net/#legal">eludi.net</a>.<br/>All rights reserved.</p
+				><p class="l10n">Pelagium &copy; 2020 by <a href="https://eludi.net/#legal">eludi.net</a>.<br/>All rights reserved.</p
 				><p class="l10n"><a href="/media/morgana-rides--by-kevin-macleod.mp3">Title theme &quot;Morgana Rides&quot;</a>
 					by <a href=https://incompetech.com">Kevin MacLeod</a>
 					from <a href="https://filmmusic.io">https://filmmusic.io</a>,
@@ -799,6 +865,7 @@ Good luck!
 			></div
 		></div
 		><ul class="footer"
+			><li><a href="https://eludi.net/#contact" class="l10n">contact</a></li
 			><li><a href="https://eludi.net/#privacyPolicy" class="l10n">privacy policy</a></li
 			><li><a href="https://eludi.net/#legal" class="l10n">legal/Impressum</a></li></ul
 	></body>
