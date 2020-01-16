@@ -4,27 +4,27 @@
 	"description": "a turn-based strategy game",
 	"icons": [
 		{
-			"src": "/static/pelagium_icon.svg",
+			"src": "pelagium_icon.svg",
 			"sizes": "144x144",
 			"type": "image/svg+xml"
 		},
 		{
-			"src": "/static/pelagium_icon.512.png",
+			"src": "pelagium_icon.512.png",
 			"sizes": "512x512",
 			"type": "image/png"
 		},
 		{
-			"src": "/static/pelagium_icon.256.png",
+			"src": "pelagium_icon.256.png",
 			"sizes": "256x256",
 			"type": "image/png"
 		},
 		{
-			"src": "/static/pelagium_icon.192.png",
+			"src": "pelagium_icon.192.png",
 			"sizes": "192x192",
 			"type": "image/png"
 		},
 		{
-			"src": "/static/pelagium_icon.114.png",
+			"src": "pelagium_icon.114.png",
 			"sizes": "114x114",
 			"type": "image/png"
 		}

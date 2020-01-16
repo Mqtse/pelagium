@@ -1,16 +1,19 @@
 this.addEventListener('install', (event)=>{
-	event.waitUntil(caches.open('static_002').then((cache)=>{
+	event.waitUntil(caches.open('static_003').then((cache)=>{
 		return cache.addAll([
-			'/static/icon_island192.png',
-			'/static/icon_island256.png',
+			'/static/pelagium_icon.114.png',
+			'/static/pelagium_icon.180.png',
+			'/static/pelagium_icon.192.png',
+			'/static/pelagium_icon.256.png',
+			'/static/pelagium_icon.512.png',
 			'/static/eludi.logo.svg',
 			'/static/favicon.ico',
 			'/static/pelagium.svg',
 			'/static/scillies.jpg',
-			'/static/montserrat-v12-latin-300.woff2',
-			'/static/montserrat-v12-latin-300.woff',
-			'/static/montserrat-v12-latin-600.woff2',
-			'/static/montserrat-v12-latin-600.woff'
+			'/static/montserrat-v14-latin-300.woff2',
+			'/static/montserrat-v14-latin-300.woff',
+			'/static/montserrat-v14-latin-600.woff2',
+			'/static/montserrat-v14-latin-600.woff'
 		]);
 	}));
 });

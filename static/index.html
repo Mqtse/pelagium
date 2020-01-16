@@ -11,11 +11,11 @@
 		<meta name="viewport" content="user-scalable=no, width=device-width" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="white" />
-		<link rel="apple-touch-icon" sizes="180x180" href="/static/pelagium_icon.180.png" />
-		<link rel="icon" sizes="192x192" href="/static/pelagium_icon.192.png" />
-		<link rel="shortcut icon" href="/static/favicon.ico" />
-		<link rel="manifest" href="/static/manifest.json" />
-		<link href='/static/fonts.css' rel='stylesheet' type='text/css'>
+		<link rel="apple-touch-icon" sizes="180x180" href="pelagium_icon.180.png" />
+		<link rel="icon" sizes="192x192" href="pelagium_icon.192.png" />
+		<link rel="shortcut icon" href="favicon.ico" />
+		<link rel="manifest" href="manifest.json" />
+		<link href='fonts.css' rel='stylesheet' type='text/css'>
 
 		<style type="text/css">
 body {
@@ -34,7 +34,7 @@ html, body {
 	-webkit-text-size-adjust: 100%;
 	text-transform: uppercase;
 	color:var(--text-color-default);
-	background: url(/static/pelagium.svg) left / contain no-repeat, url(/static/scillies.jpg) 50% / cover rgb(201,219,207);
+	background: url(pelagium.svg) left / contain no-repeat, url(scillies.jpg) 50% / cover rgb(201,219,207);
 	touch-action: none;
 }
 
@@ -294,11 +294,11 @@ ul.footer a {
 }
 		</style>
 
-		<script type="text/javascript" src="/static/infra.js"></script>
-		<script type="text/javascript" src="/static/renderer.js"></script>
-		<script type="text/javascript" src="/static/seedrandom.js"></script>
-		<script type="text/javascript" src="/static/masterdata.js"></script>
-		<script type="text/javascript" src="/static/shared.js"></script>
+		<script type="text/javascript" src="infra.js"></script>
+		<script type="text/javascript" src="renderer.js"></script>
+		<script type="text/javascript" src="seedrandom.js"></script>
+		<script type="text/javascript" src="masterdata.js"></script>
+		<script type="text/javascript" src="shared.js"></script>
 		<script type="text/javascript">
 if ('serviceWorker' in navigator) { /*
 	navigator.serviceWorker.register('/serviceworker.js', {scope:'/'})
@@ -476,7 +476,7 @@ app = {
 			params.scenario = scenario;
 			if(localStorage)
 				localStorage.removeItem('pelagium/client_/sim');
-			this.openUrl('/static/pelagium.html', params);
+			this.openUrl('pelagium.html', params);
 		}
 	},
 	demo: function() {
@@ -488,10 +488,10 @@ app = {
 		for(let id in scenario.starts)
 			parties[id] = (id===ownId) ? 0 : 1; // AI
 		let params = { cmd:'demo', scenario:scenId, parties:parties };
-		this.openUrl('/static/pelagium.html', params);
+		this.openUrl('pelagium.html', params);
 	},
 	tutorial: function() {
-		this.openUrl('/static/tutorial.html');
+		this.openUrl('tutorial.html');
 	},
 	configure: function(scenId) {
 		const switchClassId = (elem, classId='selected')=>{
@@ -593,16 +593,16 @@ app = {
 	resume: function() {
 		var id = document.getElementById("resume_id").value.toUpperCase();
 		if(id.length)
-			this.openUrl('/static/pelagium.html', {cmd:'resume', id:id});
+			this.openUrl('pelagium.html', {cmd:'resume', id:id});
 		else if(localStorage && localStorage.getItem('pelagium/client_/sim'))
-			this.openUrl('/static/pelagium.html', {cmd:'resume'});
+			this.openUrl('pelagium.html', {cmd:'resume'});
 	},
 	join: function() {
 		if(!navigator.onLine)
 			return alert('server connection required for joining a game');
 		var id = document.getElementById("join_id").value.toUpperCase();
 		if(id.length)
-			this.openUrl('/static/pelagium.html', {cmd:'join', id:id});
+			this.openUrl('pelagium.html', {cmd:'join', id:id});
 	},
 	over: function(params) {
 		let isWinner = false;
@@ -709,7 +709,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 	</head>
 
 	<body
-		><img id="logo" src="/static/eludi.logo.svg" onclick="document.location.href='https://eludi.net';" alt="eludi.net"
+		><img id="logo" src="eludi.logo.svg" onclick="document.location.href='https://eludi.net';" alt="eludi.net"
 		><div id="screens"
 			><ul id="screen_main"
 				><li class="l10n" onclick="app.screen('scenario');">start game</li

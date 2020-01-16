@@ -4,8 +4,8 @@
 	font-style: normal;
 	font-weight: 300;
 	src: local('Montserrat Light'), local('Montserrat-Light'),
-		url('/static/montserrat-v14-latin-300.woff2') format('woff2'),
-		url('/static/montserrat-v14-latin-300.woff') format('woff');
+		url('montserrat-v14-latin-300.woff2') format('woff2'),
+		url('montserrat-v14-latin-300.woff') format('woff');
 }
 /* montserrat-600 - latin */
 @font-face {
@@ -13,6 +13,6 @@
 	font-style: normal;
 	font-weight: 600;
 	src: local('Montserrat SemiBold'), local('Montserrat-SemiBold'),
-		url('/static/montserrat-v14-latin-600.woff2') format('woff2'),
-		url('/static/montserrat-v14-latin-600.woff') format('woff');
+		url('montserrat-v14-latin-600.woff2') format('woff2'),
+		url('montserrat-v14-latin-600.woff') format('woff');
 }

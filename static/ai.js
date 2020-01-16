@@ -1,10 +1,5 @@
-if(typeof importScripts === 'function') { // webworker
-	importScripts(
-		"/static/masterdata.js",
-		"/static/infra.js",
-		"/static/shared.js",
-		"/static/pathfinder.js");
-}
+if(typeof importScripts === 'function') // webworker
+	importScripts("masterdata.js", "infra.js", "shared.js", "pathfinder.js");
 
 let Attitude = {
 	expansive: {
@@ -715,9 +710,9 @@ if(typeof importScripts === 'function') { // webworker
 		if(msg.cmd=='join' || msg.cmd=='resume') {
 			if(typeof SimProxy == 'undefined') {
 				if(msg.id) // client-server
-					importScripts("/static/sim_proxy.js");
+					importScripts("sim_proxy.js");
 				else // isSinglePlayer
-					importScripts("/static/sim_delegate.js");
+					importScripts("sim_delegate.js");
 			}
 
 			let method = Array.isArray(msg.party) ? 'createMulti' : 'create';

@@ -295,13 +295,15 @@ let serverPelagium = new ServerPelagium('pelagium', cfg.persistence);
 
 let server = httpUtils.createServer(cfg, (req, resp, url)=>{
 	if(!url.path.length)
-		return httpUtils.redirect(req, resp, url, { path:[ serverPelagium.path ] });
+		return httpUtils.redirect(req, resp, url, { path:[ 'static', 'index.html' ] });
 
 	//console.log(req.method, url.pathname, JSON.stringify(url.query));
 	switch(url.path[0]) { // toplevel services:
 	case 'ping':
 		return httpUtils.respond(resp, 200, 'pong');
 	case serverPelagium.path:
+		if(url.path.length===1 && req.method==='GET')
+			return httpUtils.redirect(req, resp, url, { path:[ 'static', 'index.html' ] });
 		return serverPelagium.handleRequest(req, url.path, url.query, resp);
 	case 'static':
 	case 'labs':

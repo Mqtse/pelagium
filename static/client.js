@@ -1394,7 +1394,7 @@ client = {
 	},
 
 	spawnAI: function(id, party, autoPilot=false) {
-		let ai = new Worker('/static/ai.js');
+		let ai = new Worker('ai.js');
 		this.workers.push(ai);
 		let client = this;
 		ai.onmessage = function(msg) {
@@ -1567,6 +1567,6 @@ let fadeIn = new TransitionFade('black',1.0,0.0);
 setTimeout(()=>{ delete fadeIn; }, 600);
 
 if(!client.checkSimOnClient())
-	eludi.loadjs("/static/sim_proxy.js");
+	eludi.loadjs("sim_proxy.js");
 else
-	eludi.loadjs("/static/sim.js", ()=>{ eludi.loadjs("/static/builtinScenarios.js"); });
+	eludi.loadjs("sim.js", ()=>{ eludi.loadjs("builtinScenarios.js"); });
