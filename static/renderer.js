@@ -1,8 +1,13 @@
 function extendCanvasContext(dc) {
 	dc.circle = function(x,y,r, style) {
-		if(style!==undefined)
+		if(style!==undefined) {
+			this.save();
 			for(var key in style)
-				this[key] = style[key];
+				if(key==='lineDash')
+					this.setLineDash(style[key]);
+				else
+					this[key] = style[key];
+		}
 		this.beginPath();
 		this.arc(x,y, r, 0, 2*Math.PI, true);
 		this.closePath();
@@ -10,6 +15,8 @@ function extendCanvasContext(dc) {
 			this.fill();
 		if(style.strokeStyle)
 			this.stroke();
+		if(style!==undefined)
+			this.restore();
 	}
 	dc.strokeCircle=function(x,y,r) {
 		this.beginPath();

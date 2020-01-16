@@ -797,11 +797,11 @@ client = {
 	},
 
 	selectUnit: function(unit) {
-		if(this.selUnit == unit || (unit && this.party != unit.party.id) || unit.origin)
+		if(!unit || this.selUnit == unit || (this.party != unit.party.id))
 			return;
 		this.deselectUnit();
-		if(unit) {
-			this.selUnit = unit;
+		this.selUnit = unit;
+		if(!unit.origin) {
 			unit.animation = new AnimationSelected(this.time, this.unit);
 			this.selection = unit.getFieldOfMovement(this.mapView);
 		}
@@ -962,6 +962,11 @@ client = {
 		MapHex.draw(this.background, this.mapView, viewport, this.vp.cellMetrics);
 	},
 
+	drawMapCircle: function(dc, pos, radius, style=undefined) {
+		var center = this.vp.mapToScreen(pos);
+		dc.circle(center.x, center.y, radius, style);
+	},
+
 	draw: function() {
 		var fastMode = (this.panning || this.pinch) ? true : false;
 		var vp = this.vp;
@@ -982,6 +987,12 @@ client = {
 
 		// foreground:
 		dc = this.foreground.dc;
+		if(this.selUnit && this.selUnit.type.range) {
+			const cellR = this.vp.cellMetrics.r;
+			this.drawMapCircle(dc, this.selUnit, (this.selUnit.type.range-0.2)*cellR*2,
+				{strokeStyle: 'rgba(255,255,255,0.5)', lineWidth:cellR/6, lineDash:[cellR/4,cellR/4]});
+		}
+
 		let foregroundUnits = [];
 		for(var id in this.units) {
 			var unit = this.units[id];
@@ -1002,11 +1013,10 @@ client = {
 		if(this.cursor && this.cursor.visible && this.isInsideViewport(this.cursor)
 			&& (!this.selUnit || this.cursor.x!=this.selUnit.x || this.cursor.y!=this.selUnit.y))
 		{
-			var center = this.vp.mapToScreen(this.cursor);
 			var lineWidth = this.vp.cellMetrics.r/8;
 			var r = 0.5*this.vp.cellMetrics.h-0.5*lineWidth;
 			var deltaR = 0.07*r*Math.sin(this.time*1.5*Math.PI);
-			dc.circle(center.x, center.y, r+deltaR, { strokeStyle: 'white', lineWidth:lineWidth });
+			this.drawMapCircle(dc, this.cursor, r+deltaR, {strokeStyle: 'white', lineWidth:lineWidth});
 		}
 	},
 
