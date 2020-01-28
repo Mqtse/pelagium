@@ -224,12 +224,26 @@ eludi = {
 		}
 		return evt;
 	},
+	toggleFullScreen: function() {
+		if(document.fullscreenEnabled) {
+			if (!document.fullscreenElement)
+				document.documentElement.requestFullscreen();
+			else if(document.exitFullscreen)
+				document.exitFullscreen();
+		}
+		else if(document.webkitFullscreenEnabled) {
+			if (!document.webkitFullscreenElement)
+				document.documentElement.webkitRequestFullscreen();
+			else if(document.webkitExitFullscreen)
+				document.webkitExitFullscreen();
+		}
+	},
 	/// opens another (eludi) url and passes parameters preferably via sessionStorage
 	openUrl: function(url, params, replace) {
 		if(params) {
 			if(location.protocol!='file:' && sessionStorage)
 				sessionStorage['eludi_paramsRequest']=JSON.stringify(params);
-			else url += '?' + this.encodeURI(params);
+			else url += '?' + http.encodeURI(params);
 		}
 		if(replace)
 			location.replace(url);
@@ -346,11 +360,8 @@ function Cache(name, sessionId) {
 			}
 		}
 	}
-	if(typeof localStorage !== 'undefined')
+	if(name && (typeof localStorage !== 'undefined'))
 		init.call(this, name, sessionId, localStorage);
-	else {
-		this.setItem = function(key, value) { }
-		this.getItem = this.removeItem = function(key) { }
-		this.clear = function() { }
-	}
+	else
+		this.setItem = this.getItem = this.removeItem = this.clear = function() { }
 }

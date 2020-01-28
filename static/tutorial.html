@@ -3,6 +3,9 @@
 	<head>
 		<title>pelagium tutorial</title>
 		<meta charset="ISO-8859-15">
+		<!-- https://electronjs.org/docs/tutorial/security#csp-meta-tag -->
+		<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
+
 		<meta name="author" content="Gerald Franz"/>
 		<meta name="description" content="turn-based online strategy game"/>
 		<meta name="keywords" content="water world,HTML5,tbs"/>
@@ -156,7 +159,6 @@
 window.onerror=function(msg, url, linenumber) {
 	alert('Error message: '+msg+'\nURL: '+url+'\nLine Number: '+linenumber);
 }
-sessionStorage.setItem('eludi_paramsRequest', JSON.stringify({ cmd:'tutorial', scenario:'mini' }));
 		</script>
 		<script type="text/javascript" src="color.js"></script>
 		<script type="text/javascript" src="seedrandom.js"></script>

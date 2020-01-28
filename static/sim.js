@@ -124,7 +124,7 @@ function Sim(params, callback) {
 	}
 
 	this.isSimOnClient = (typeof require === 'undefined');
-		
+
 	if(this.isSimOnClient)
 		this.on = function(evt, callback) { }
 

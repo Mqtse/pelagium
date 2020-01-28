@@ -29,7 +29,7 @@ function ProductionController(selector, unitColor, callback) {
 				dc.stroke();
 				this.production = id;
 			}
-			var sz = 24;
+			var sz = canvas.width/2;
 			dc.save();
 			dc.translate(0.5*(canvas.width-sz), 0.5*(canvas.height-sz));
 			dc.beginPath();
@@ -76,6 +76,8 @@ function ProductionController(selector, unitColor, callback) {
 		return element.style.display != 'none';
 	}
 
+	let pixelRatio = window.devicePixelRatio || 1;
+
 	for(let id in MD.Unit) {
 		const Unit = MD.Unit[id];
 		let item = document.createElement('li');
@@ -83,7 +85,8 @@ function ProductionController(selector, unitColor, callback) {
 		item.title = Unit.name+', '+Unit.cost+' turns';
 
 		let canvas = document.createElement('canvas');
-		canvas.width = canvas.height = 48;
+		canvas.width = canvas.height = 48 * pixelRatio;
+		canvas.style.width = canvas.style.he9ght = '100%';
 		item.appendChild(canvas);
 		item.onclick = function(evt) {
 			callback(evt.currentTarget.dataset.id);
@@ -172,7 +175,7 @@ client = {
 		this.eventListeners = {};
 		this.turn = 1;
 		this.consistencyState = { turn:this.turn, ordersSent:false, state:this.state };
-		this.cache = new Cache('pelagium/client', this.credentials.id);
+		this.cache = new Cache((this.isDemo || this.isTutorial) ? null : 'pelagium/client', this.credentials.id);
 		this.cache.removeItem('/sim');
 		if(credentials.mode=='start')
 			this.cache.removeItem('/orders');
@@ -249,15 +252,25 @@ client = {
 	close: function(saveMatch, params) {
 		const baseUrl = (document.referrer && document.referrer!=document.URL) ?
 			document.referrer : 'index.html';
+		const navigate = (!params || (location.protocol!='file:' && sessionStorage)) ?
+			()=>{ 
+				document.documentElement.style.background = 'black';
+				if(params)
+					sessionStorage['eludi_paramsRequest']=JSON.stringify(params);
+				history.back();
+			} :
+			()=>{
+				document.documentElement.style.background = 'black';
+				eludi.openUrl(baseUrl, params, false);
+			};
+
 		if(saveMatch && this.state!='over') {
 			if(!this.isSimOnClient)
-				return this.modalPopup('resume id: '+this.credentials.id, ['OK'],
-					()=>{ eludi.openUrl(baseUrl, params, false); });
-			if(!this.isTutorial && !this.isDemo)
-				this.cache.setItem('/sim', this.sim._serialize());
+				return this.modalPopup('resume id: '+this.credentials.id, ['OK'], navigate);
+			this.cache.setItem('/sim', this.sim._serialize());
 		}
 		this.transition = new TransitionFade();
-		setTimeout(()=>{ eludi.openUrl(baseUrl, params, false); }, 400);
+		setTimeout(navigate, 400);
 	},
 
 	on: function(event, callback) {
@@ -307,21 +320,6 @@ client = {
 		this.vp.width = Math.ceil(1.25+width/this.vp.cellMetrics.w);
 		this.vp.height = Math.ceil(1.5+height/this.vp.cellMetrics.h);
 		this.redrawMap = true;
-	},
-
-	toggleFullScreen: function() {
-		if(document.fullscreenEnabled) {
-			if (!document.fullscreenElement)
-				document.documentElement.requestFullscreen();
-			else if(document.exitFullscreen)
-				document.exitFullscreen();
-		}
-		else if(document.webkitFullscreenEnabled) {
-			if (!document.webkitFullscreenElement)
-				document.documentElement.webkitRequestFullscreen();
-			else if(document.webkitExitFullscreen)
-				document.webkitExitFullscreen();
-		}
 	},
 
 	menuVisible: function() {
@@ -400,13 +398,20 @@ client = {
 	handlePointerEvent: function(event) {
 		switch(event.type) {
 		case 'start':
-			if(event.id==1 && event.pointerType!='mouse') {
+			if(event.id==1) {
 				this.pointerEventStartTime = Date.now();
-				if(!this.panning && !this.pinch)
-					this.emit('fastDraw');
-				this.panning = false;
-				this.pinch = [{x:this.prevX, y:this.prevY}, {x:event.x, y:event.y}];
+				if(event.pointerType=='mouse') {
+					this.prevX = event.x;
+					this.prevY = event.y;
+					this.panning = true;
 				}
+				else {
+					if(!this.panning && !this.pinch)
+						this.emit('fastDraw');
+					this.panning = false;
+					this.pinch = [{x:this.prevX, y:this.prevY}, {x:event.x, y:event.y}];
+				}
+			}
 			else if(event.id==0) {
 				this.pointerEventStartTime = Date.now();
 				this.prevX = event.x;
@@ -444,7 +449,7 @@ client = {
 		case 'end':
 			if(event.id>1 || !this.pointerEventStartTime) // ignore right mouse button / multi-touch
 				return;
-			else if(this.pinch || this.panning) {
+			if(this.pinch || this.panning) {
 				this.pinch = this.panning = false;
 				this.redrawMap = true;
 				this.emit('fullDraw');
@@ -580,7 +585,8 @@ client = {
 			}
 			break;
 		case 122: // F11
-			return this.toggleFullScreen();
+			event.preventDefault();
+			return eludi.toggleFullScreen();
 		}
 		if(this.cursor && !this.isInsideViewport(this.cursor, 1))
 			this.viewCenter(this.cursor.x, this.cursor.y);
@@ -599,7 +605,7 @@ client = {
 			break;
 		case 'fullscreen':
 			this.toggleMenu(false);
-			return this.toggleFullScreen();
+			return eludi.toggleFullScreen();
 		case "suspend":
 			return this.close(true);
 		case "capitulate":
@@ -856,7 +862,7 @@ client = {
 	},
 	restoreOrders: function() {
 		var cachedOrders = this.cache.getItem('/orders');
-		if(!cachedOrders || this.isDemo || this.isTutorial)
+		if(!cachedOrders)
 			return;
 		if(cachedOrders.turn != this.turn)
 			return this.cache.removeItem('/orders');
@@ -1167,6 +1173,25 @@ client = {
 			if(!this.isInsideViewport(unit, 2))
 				this.viewCenter(unit.x, unit.y);
 
+			let dest = this.mapView.get(evt.to_x, evt.to_y);
+			if(dest.terrain===MD.OBJ) { // try to show previous party
+				let prevParty =-1;
+				for(let i=0; i<this.simEvents.length; ++i) {
+					let nextEvt = this.simEvents[i];
+					if(nextEvt.x != evt.to_x || nextEvt.y != evt.to_y)
+						continue;
+					if(nextEvt.type=='capture') {
+						prevParty = nextEvt.from;
+						break;
+					}
+				}
+				if(prevParty!==-1 && dest.party != prevParty) {
+					dest.party = prevParty;
+					if(!this.redrawMap)
+						this.redrawMap = {x:evt.to_x, y:evt.to_y};
+				}
+			}
+
 			unit.animation = new AnimationMove(this.time, unit, {x:evt.to_x, y:evt.to_y},
 				(unit, evt)=>{
 					delete this.mapView.get(evt.from_x, evt.from_y).unit;
@@ -1241,7 +1266,7 @@ client = {
 				this.orders = [];
 				this.cache.removeItem('/orders');
 				this.consistencyState.ordersSent = false;
-				if(this.isSimOnClient && !this.isTutorial && !this.isDemo)
+				if(this.isSimOnClient)
 					this.cache.setItem('/sim', this.sim._serialize());
 			}
 			this.updateProduction(newTurn - this.turn);
@@ -1251,7 +1276,12 @@ client = {
 		case 'contact': {
 			//console.log('event', evt);
 			var tile = this.mapView.get(evt.x, evt.y);
-			tile.unit = this.units[evt.unit.id] = new Unit(evt.unit);
+			var contactUnit = tile.unit = this.units[evt.unit.id] = new Unit(evt.unit);
+			if(tile.terrain===MD.OBJ && tile.party != contactUnit.party.id) {
+				tile.party = contactUnit.party.id;
+				if(!this.redrawMap)
+					this.redrawMap = {x:evt.x, y:evt.y};
+			}
 			return false;
 		}
 		case 'contactLost': {
@@ -1368,7 +1398,7 @@ client = {
 
 		case 'over': {
 			this.selUnit = null;
-			if(localStorage) {
+			if(!this.isDemo && !this.isTutorial && localStorage) {
 				delete localStorage.pelagium;
 				this.cache.removeItem('/sim');
 			}

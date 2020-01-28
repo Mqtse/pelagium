@@ -3,6 +3,9 @@
 	<head>
 		<title>pelagium</title>
 		<meta charset="ISO-8859-15">
+		<!-- https://electronjs.org/docs/tutorial/security#csp-meta-tag -->
+		<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
+
 		<meta name="author" content="Gerald Franz"/>
 		<meta name="description" content="turn-based strategy game"/>
 		<meta name="keywords" content="water world,hex grid,HTML5,javascript"/>
@@ -114,6 +117,7 @@ a:hover, ul.footer a:hover  {
 h2 {
 	margin:0 0 0.1em 0;
 	font-size: 100%;
+	line-height: 0.8;
 	color: var(--text-color-heading);
 	text-shadow:0 0 0.25em rgb(201,219,207);
 
@@ -133,6 +137,17 @@ input {
 	color:var(--text-color-default);
 }
 
+textarea, #screen_contact input {
+	box-sizing: border-box;
+	width:98%;
+	border: none;
+	font-family: 'Montserrat', sans-serif;
+	font-size: 75%;
+	font-weight: bold;
+	background: rgba(255,255,255,0.5);
+	color:var(--text-color-default);
+}
+
 #logo {
 	position: fixed;
 	right:0.5em;
@@ -145,7 +160,8 @@ input {
 	cursor: pointer;
 }
 
-#screen_help > div, #screen_story > p, #screen_credits > p {
+#screen_help > div, #screen_story > p, #screen_credits > p, #screen_privacy > p,
+#screen_contact p, #screen_contact label, #screen_legal > p {
 	text-shadow:0 0 0.25em rgb(201,219,207);
 	font-size: 66%;
 	font-weight: bold;
@@ -157,7 +173,7 @@ input {
 	margin-top:-10px;
 }
 
-#screen_story > p {
+#screen_story > p, #screen_privacy > p, #screen_contact p, #screen_contact label, #screen_legal > p {
 	background-color: rgba(201,219,207, 0.5);
 	box-shadow: 0 0 10px 10px rgba(201,219,207, 0.5);
 }
@@ -240,9 +256,11 @@ ul#scenarios {
 
 /*--- screen_config ---*/
 
-#screen_config, #screen_story {
+.overflow {
+	box-sizing: border-box;
 	max-height: 100vh;
 	overflow-y: auto;
+	padding-bottom: 0.5em;
 }
 
 .vspace {
@@ -348,6 +366,7 @@ app = {
 	//--- general controller methods ---
 	screen: function(screen, display) {
 		eludi.switchToSibling('screen_'+screen, display);
+		document.getElementById('screen_'+screen).firstElementChild.scrollIntoView();
 	},
 	onEnter: function(event, callback) {
 		if (event.which == 13 || event.keyCode == 13) {
@@ -356,9 +375,27 @@ app = {
 		}
 		return true;
 	},
+	fadeAudio: function(audio, duration) {
+		if(!audio || audio.muted)
+			return;
+		const delta = audio.volume/duration/20;
+		const intervalId = setInterval(()=>{
+			audio.volume -= delta;
+			if(audio.volume <=0.0)
+				clearInterval(intervalId);
+		}, 50);
+	},
+	toggleAudio: function(audio) {
+		if(audio)
+			audio.muted = !audio.muted;
+	},
 	openUrl: function(url, params) {
 		this.transition = new TransitionFade();
-		setTimeout(()=>{ eludi.openUrl(url, params, false); }, 400);
+		this.fadeAudio(this.bgMusic, 0.4);
+		setTimeout(()=>{
+			document.documentElement.style.background = 'black';
+			eludi.openUrl(url, params, false);
+		}, 400);
 	},
 	//--- specific functionality ---
 	init: function(params) {
@@ -369,6 +406,9 @@ app = {
 		} catch(err) {
 			console.error(err);
 		}
+		window.oncontextmenu = (e)=>{ return false; }
+		eludi.addKeyEventListener(window, (event)=>{ this.handleKeyEvent(event); });
+
 		this.fillTerrainTable();
 		this.fillUnitTable();
 
@@ -380,12 +420,26 @@ app = {
 
 		http.get('/pelagium/scenarios', null, (data, code)=>{
 			if(code==200) {
+				document.querySelectorAll('.electron').forEach((item)=>{
+					item.style.display = 'none';
+				});
 				this.addScenarios(data);
 				finalizeInit(params);
 			}
 			else {
-				console.info('loading scenario data failed:', code, '-> running serverless');
 				this.serverless = true;
+				if(navigator.userAgent.toLowerCase().indexOf(' electron/') > -1) {
+					this.electron = true;
+					this.bgMusic = new Audio();
+					this.bgMusic.src = '../media/morgana-rides--by-kevin-macleod.mp3';
+					this.bgMusic.volume = 0.4;
+					this.bgMusic.play();
+				}
+				else document.querySelectorAll('.electron').forEach((item)=>{
+					item.style.display = 'none';
+				});
+				console.info('loading scenario data failed:', code,
+					'-> running serverless'+(this.electron ? ' on electron' : ''));
 
 				document.querySelectorAll('.multiplayer').forEach((item)=>{
 					item.style.display = 'none';
@@ -414,7 +468,7 @@ app = {
 
 		if(data.starts)
 			for(var partyId in data.starts)
-				data.objectives[data.starts[partyId]].party = partyId; 
+				data.objectives[data.starts[partyId]].party = partyId;
 		var map = new MapHex(data);
 
 		var page = map.page;
@@ -449,7 +503,7 @@ app = {
 
 		let parent = document.getElementById("scenarios");
 		for(let id in data) {
-			if(data[id].visibility=='hidden')
+			if(data[id].visibility==='hidden')
 				continue;
 			let li = parent.firstChild.cloneNode(true);
 			li.style.display='';
@@ -481,6 +535,9 @@ app = {
 	},
 	demo: function() {
 		const scenarios = Object.keys(this.scenarios);
+		for(let i=scenarios.length; i-->0; )
+			if(this.scenarios[scenarios[i]].visibility==='hidden')
+				scenarios.splice(i,1);
 		const scenId = scenarios[Math.floor(Math.random()*scenarios.length)];
 		let scenario = this.scenarios[scenId];
 		let ownId = String(Math.floor(Object.keys(scenario.starts).length * Math.random()) + 1);
@@ -491,7 +548,7 @@ app = {
 		this.openUrl('pelagium.html', params);
 	},
 	tutorial: function() {
-		this.openUrl('tutorial.html');
+		this.openUrl('tutorial.html', {cmd:'tutorial', scenario:'mini'});
 	},
 	configure: function(scenId) {
 		const switchClassId = (elem, classId='selected')=>{
@@ -524,9 +581,14 @@ app = {
 		screen.querySelector('h2').innerHTML = screen.dataset.id = scenId;
 
 		let canvas = screen.querySelector('canvas');
+		let canvasOrig = document.querySelector('#preview_'+scenId);
 		let dc = canvas.getContext('2d');
+		canvas.style.width = canvasOrig.style.width;
+		canvas.style.height = canvasOrig.style.height;
+		canvas.width = canvasOrig.width;
+		canvas.height = canvasOrig.height;
 		dc.clearRect(0,0, canvas.width, canvas.height);
-		dc.drawImage(document.querySelector('#preview_'+scenId), 0,0, canvas.width, canvas.height);
+		dc.drawImage(canvasOrig, 0,0, canvas.width, canvas.height);
 
 		let scenario = this.scenarios[scenId];
 		let parent = screen.querySelector('#parties');
@@ -654,13 +716,16 @@ app = {
 	fillTerrainTable: function() {
 		let table = new StatsTable(document.querySelector("#terrain"));
 		table.rowName(1,'symbol').rowName(2, "defense").rowName(3, "movement").rowName(4, "concealm.");
+		const pixelRatio = ('devicePixelRatio' in window) ? window.devicePixelRatio : 1.0;
 
 		for(let i=0, col=1; i<MD.Terrain.length; ++i, ++col) {
 			const terrain = MD.Terrain[i];
 
 			table.set(1, col, '<canvas id="icon_terrain_'+terrain.id+'" class="help_icon"></canvas>');
 			let canvas = document.querySelector('#icon_terrain_'+terrain.id);
-			canvas.width = canvas.height = 40;
+			canvas.style.width = canvas.style.height = '40px';
+			canvas.width = canvas.height = 40 * pixelRatio;
+
 			let dc = extendCanvasContext(canvas.getContext('2d'));
 			dc.hex(canvas.width/2, canvas.height/2, canvas.height/2, {fillStyle:terrain.color});
 			canvas.parentNode.style.background = 'none';
@@ -675,6 +740,7 @@ app = {
 		table.rowName(1,'symbol').rowName(2, "moves").rowName(3, "attack")
 			.rowName(4, "defense").rowName(5, "support").rowName(6, "sup. range")
 			.rowName(7, "vis. range").rowName(8, "retreat").rowName(9, "cost");
+		const pixelRatio = ('devicePixelRatio' in window) ? window.devicePixelRatio : 1.0;
 
 		let col = 1;
 		for(let id in MD.Unit) {
@@ -682,11 +748,13 @@ app = {
 
 			table.set(1, col, '<canvas id="icon_'+unit.id+'" class="help_icon"></canvas>');
 			let canvas = document.querySelector('#icon_'+unit.id);
-			canvas.width = canvas.height = 40;
+			canvas.style.width = canvas.style.height = '40px';
+			canvas.width = canvas.height = 40 * pixelRatio;
+
 			let dc = extendCanvasContext(canvas.getContext('2d'));
 			dc.fillStyle = MD.Party[1].color;
 			dc.fillRect(0,0, canvas.width, canvas.height);
-			dc.strokeUnit(id, canvas.width, canvas.height, 7, 'white');
+			dc.strokeUnit(id, canvas.width, canvas.height, 7*pixelRatio, 'white');
 			canvas.parentNode.style.background = 'none';
 
 			table.colName(col, unit.name);
@@ -696,10 +764,31 @@ app = {
 			++col;
 		}
 	},
+	handleKeyEvent: function(evt) {
+		switch(evt.key) {
+		case 'F11':
+			event.preventDefault();
+			return eludi.toggleFullScreen();
+		}
+	},
+	submitContact: function() {
+		var f=document.querySelector('#formContact');
+		if(!f.querySelector('textarea').value)
+			return;
+		f.submit();
+		f.style.display = 'none';
+		var s=document.querySelector('#contact_submitted');
+		s.style.display = 'block';
+		setTimeout(()=>{ f.style.display = ''; s.style.display = 'none'; app.screen('main'); }, 4000);
+	},
 	close: function() {
-		window.close();
+		this.transition = new TransitionFade();
+		this.fadeAudio(this.bgMusic, 0.4);
+		setTimeout(()=>{ window.close(); }, 400);
 	},
 	serverless: false,
+	electron: false,
+	bgMusic: null,
 	scenarios: null
 }
 document.addEventListener("DOMContentLoaded", ()=>{
@@ -709,7 +798,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
 	</head>
 
 	<body
-		><img id="logo" src="eludi.logo.svg" onclick="document.location.href='https://eludi.net';" alt="eludi.net"
+		><img id="logo" src="eludi.logo.svg"
+			onclick="window.open('https://eludi.net', '_blank');" alt="eludi.net"
 		><div id="screens"
 			><ul id="screen_main"
 				><li class="l10n" onclick="app.screen('scenario');">start game</li
@@ -718,6 +808,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 				><li class="l10n" onclick="app.demo();">demo</li
 				><li class="l10n" onclick="app.tutorial();">tutorial</li
 				><li class="l10n" onclick="app.screen('help');">about&hellip;</li
+				><li class="l10n electron" onclick="app.close();">exit</li
 			></ul
 
 			><div id="screen_help"
@@ -733,7 +824,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
 				></ul
 			></div
 
-			><div id="screen_story"
+			><div id="screen_story" class="overflow"
 				><h2 class="l10n">background</h2
 				><p>
 Once upon in time the formerly peaceful and scenic isles of Pelagium where shaken by
@@ -805,7 +896,7 @@ Good luck!
 				></ul
 			></div
 
-			><div id="screen_config"
+			><div id="screen_config" class="overflow"
 				><h2 class="l10n">scenario configuration</h2
 				><canvas id="scenario_preview" width="240" height="240"></canvas
 				><ul id="parties"
@@ -853,20 +944,78 @@ Good luck!
 
 			><div id="screen_credits"
 				><h2 class="l10n">credits</h2
-				><p class="l10n">Pelagium &copy; 2020 by <a href="https://eludi.net/#legal">eludi.net</a>.<br/>All rights reserved.</p
-				><p class="l10n"><a href="/media/morgana-rides--by-kevin-macleod.mp3">Title theme &quot;Morgana Rides&quot;</a>
-					by <a href=https://incompetech.com">Kevin MacLeod</a>
-					from <a href="https://filmmusic.io">https://filmmusic.io</a>,
-					licensed under <a href="http://creativecommons.org/licenses/by/4.0/">CC BY</a>.
+				><p class="l10n">Pelagium &copy; 2020 by <a href="https://eludi.net/#legal" target="_blank">eludi.net</a>.<br/>All rights reserved.</p
+				><p class="l10n">Title theme &quot;Morgana Rides&quot;
+					by <a href="https://incompetech.com" target="_blank">Kevin MacLeod</a>
+					from <a href="https://filmmusic.io" target="_blank">https://filmmusic.io</a>,
+					licensed under <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank">CC BY</a>.
 				</p
 				><ul
 					><li onclick="app.screen('main');"><span class ="l10n">back</span></li
 				></ul
 			></div
+
+			><div id="screen_privacy" class="overflow"
+				><h2 class="l10n">privacy policy</h2
+				><p>This game respects your privacy and does not collect any
+					person-identifying or other data from its users.</p
+				><p>The only exception from this rule is the game's
+					<a href="javascript:app.screen('contact');">contact</a> form.
+					If you contact us this way, the submitted form data will be
+					stored and processed for the sole purpose and duration of
+					handling your request.</p
+				><p>The store where you have accessed or obtained the game from may
+					have different terms. Their policies should be available from
+					their entry page.</p
+				><ul
+					><li onclick="app.screen('main');"><span class ="l10n">back</span></li
+				></ul
+			></div
+
+			><div id="screen_contact" class="overflow">
+				<p>Questions, comments, ideas? We like hearing from you!</p>
+				<iframe name="hidden_iframe" id="hidden_iframe" style="display:none;"></iframe>
+				<form id="formContact" action="https://eludi.net/services/mail.php" method="post" target="hidden_iframe">
+					<label for="name">Name (optional)</label>
+					<input type="text" name="name" value="" id="name" autocomplete="name" />
+
+					<label for="email">e-Mail (optional)</label>
+					<input type="email" name="email" value="" id="email" autocomplete="email" />
+
+					<label for="msg">Message (required)</label>
+					<textarea name="msg" rows="8" class="input_long" id="msg"></textarea>
+
+					<p>Please be aware that submitting this contact form triggers
+						an automatic processing and storage of the entered data.
+						This data is only used for processing your request.</p>
+					<ul>
+						<li onclick="app.submitContact();">submit</li>
+						<li onclick="app.screen('main');">cancel</li>
+					</ul>
+				</form>
+
+				<div id="contact_submitted" style="display:none">
+					<p>Thank you for your feedback.</p>
+				</div>
+			</div
+
+			><div id="screen_legal" class="overflow"
+				><h2 class="l10n">impressum<span style="font-size: 50%"><br/>(legal information)</span></h2
+				><p><a href="https://eludi.net" target="_blank">eludi.net</a><br />
+					Gerald Franz<br />
+					Brombeerweg 7<br />
+					69168 Wiesloch<br />
+					Germany
+				</p
+				><ul
+					><li onclick="app.screen('main');"><span class ="l10n">back</span></li
+				></ul
+			></div
+
 		></div
 		><ul class="footer"
-			><li><a href="https://eludi.net/#contact" class="l10n">contact</a></li
-			><li><a href="https://eludi.net/#privacyPolicy" class="l10n">privacy policy</a></li
-			><li><a href="https://eludi.net/#legal" class="l10n">legal/Impressum</a></li></ul
+			><li><a href="javascript:app.screen('contact');" class="l10n">contact</a></li
+			><li><a href="javascript:app.screen('privacy');" class="l10n">privacy policy</a></li
+			><li><a href="javascript:app.screen('legal');" class="l10n">legal/Impressum</a></li></ul
 	></body>
 </html>

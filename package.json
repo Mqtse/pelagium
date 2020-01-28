@@ -1,11 +1,12 @@
 {
 	"name":"pelagium",
-	"description": "multiplayer online turn-based strategy game in an island world",
-	"version":"0.9.5",
+	"description": "straightforward turn-based strategy on scenic islands",
+	"version":"0.13.20200116",
 	"scripts": {
 		"start": "node server.js --devMode 0 --persistence persistence"
 	},
-	"main": "server.js",
+	"main node": "server.js",
+	"main": "main.js",
 	"author": "Gerald Franz <gerald.franz@eludi.net>",
 	"license": "all rights reserved"
 }

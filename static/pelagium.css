@@ -7,7 +7,6 @@ html, body {
 	font-size: 16px;
 	text-transform: uppercase;
 	color:white;
-	/*background-color:rgb(130,160,200);*/
 	background-color:hsl(210,35%,65%);
 	touch-action: none;
 }
