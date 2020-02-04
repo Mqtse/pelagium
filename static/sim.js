@@ -108,13 +108,23 @@ function Sim(params, callback) {
 		if((this.devMode || this.isTutorial) && orders && orders.length==1 && orders[0].type=='forceEvaluate')
 			return this._evaluateSimEvents();
 
+		if(this.dbgChannel)
+			this.dbgChannel.postMessage({turn:this.turn, party:party, ordersReceived:orders});
+
 		if(!this._validateOrders(party, orders, turn)) {
 			if(callback)
 				callback('orders semantically invalid', 400);
 			return false;
 		}
+
+		if(this.dbgChannel)
+			this.dbgChannel.postMessage({turn:this.turn, ordersValidated:orders});
+
 		this.parties[party].orders = orders = this._atomizeOrders(orders);
 		this.lastUpdateTime = new Date()/1000.0;
+
+		if(this.dbgChannel)
+			this.dbgChannel.postMessage({turn:this.turn, party:party, ordersAtomized:orders});
 
 		if(this._isReadyForEvaluation())
 			this._evaluateSimEvents();
@@ -243,10 +253,11 @@ function Sim(params, callback) {
 	}
 
 	this._atomizeOrders = function(orders) {
-		var ordersOut = [];
-		var unitsToIgnore = {};
-		for(var j=0; j<orders.length; ++j) {
-			var order = orders[j];
+		let ordersOut = [];
+		let unitsToIgnore = {};
+		let occupiedTiles = new MatrixSparse(false);
+		for(let j=0; j<orders.length; ++j) {
+			let order = orders[j];
 			if(!order)
 				continue;
 			if(order.type!='move') {
@@ -254,14 +265,20 @@ function Sim(params, callback) {
 				continue;
 			}
 
-			var unit = this.map.get(order.from_x, order.from_y).unit;
-			var path = unit.getPath(this.map.page, order.to_x, order.to_y, unitsToIgnore);
-			var from = unit;
-			for(var i=0, end=path.length; i!=end; ++i) {
-				var to = path[i];
+			let unit = this.map.get(order.from_x, order.from_y).unit;
+			const fov =this.parties[unit.party.id].fov;
+			let path = unit.getPath(this.map.page, order.to_x, order.to_y, unitsToIgnore, occupiedTiles, fov);
+			let from = unit;
+			for(let i=0, end=path.length; i!=end; ++i) {
+				let to = path[i];
 				ordersOut.push({type:'move', unit:order.unit, from_x:from.x, from_y:from.y, to_x:to.x, to_y:to.y});
 				from = to;
 				unitsToIgnore[order.unit] = true;
+				const expelledUnit = this.map.get(to.x, to.y).unit;
+				if(expelledUnit)
+					unitsToIgnore[expelledUnit.id] = true;
+				if(i+1==path.length)
+					occupiedTiles.set(to.x, to.y, true);
 			}
 		}
 		return ordersOut;
@@ -274,6 +291,7 @@ function Sim(params, callback) {
 				ordersByParty.push(this.parties[key].orders);
 				this.parties[key].orders = null;
 			}
+			else ordersByParty.push([]);
 		}
 
 		var numParties = ordersByParty.length;
@@ -322,9 +340,15 @@ function Sim(params, callback) {
 
 	this._evaluateSimEvents = function() {
 		console.log('--', this.id, 'evaluate turn', this.turn, '--');
-		var events = [ ];
+
+		if(this.dbgChannel)
+			this.dbgChannel.postMessage({turn:this.turn, simBeforeEvaluate:this._serialize()});
 		var orders = this._mergeOrders();
-		for(var i=0; i<orders.length; ++i) {
+		if(this.dbgChannel)
+			this.dbgChannel.postMessage({turn:this.turn, mergedOrders:orders});
+
+			var events = [];
+			for(var i=0; i<orders.length; ++i) {
 			var order = orders[i];
 			switch(order.type) {
 			case 'move': {
@@ -379,6 +403,8 @@ function Sim(params, callback) {
 			this._updateProduction(events);
 		}
 		this._dispatchEvents(events);
+		if(this.dbgChannel)
+			this.dbgChannel.postMessage({turn:this.turn, events:events});
 		if(isGameOver)
 			return;
 
@@ -547,7 +573,8 @@ function Sim(params, callback) {
 
 				for(var i=0; i<retreatPositions.length && retreatPos === null; ++i) {
 					var tile = this.map.get(retreatPositions[i].x, retreatPositions[i].y);
-					if(!looser.isAccessible(tile) || tile.unit || looser.isBlocked(this.map, retreatPositions[i], tile))
+					if(!looser.isAccessible(tile) || tile.unit
+						|| looser.isBlocked(this.map, looser, retreatPositions[i], tile))
 						continue;
 					retreatPos = retreatPositions[i];
 				}
@@ -758,7 +785,7 @@ function Sim(params, callback) {
 			pageSz:32,
 			fractionObjectivesVictory:0.66,
 			timePerTurn: 86400, // 1 day
-			devMode: 1,
+			devMode: 0,
 			id:''
 		};
 		for(var key in defaults)
@@ -804,6 +831,25 @@ function Sim(params, callback) {
 		this.turnStartTime = this.lastUpdateTime = new Date()/1000.0;
 		this.state = 'running';
 	}
+	this._initDebug = function() {
+		let dbg = this.dbgChannel = new BroadcastChannel('pelagium_dbg');
+
+		dbg.onmessage = (evt)=>{
+			const msg = evt.data;
+			if(typeof msg !== 'object' || ('receiver' in msg && msg.receiver!=='sim'))
+				return;
+			console.log('debug msg', msg);
+
+			if('sim' in msg)
+				this._deserialize(msg.sim);
+
+			if(msg.cmd == 'evaluate')
+				this._evaluateSimEvents();
+			else if(msg.cmd == 'postOrders')
+				this.postOrders(msg.party, msg.orders);
+		}
+		return true;
+	}
 
 	this.state = 'init';
 	if(this.isSimOnClient && params.cmd=='resume') {
@@ -820,6 +866,7 @@ function Sim(params, callback) {
 		this._init(params);
 
 	this.simEventListeners = { };
+	this.dbgChannel = null;
 	if(callback) {
 		var credentials = { party:params.party ? params.party : 1 };
 		if(this.isSimOnClient) {

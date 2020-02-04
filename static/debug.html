@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<HTML>
+	<head>
+		<title>pelagium debugger</title>
+		<meta charset="ISO-8859-15">
+		<meta name="author" content="Gerald Franz"/>
+		<meta name="description" content="turn-based online strategy game"/>
+		<meta name="keywords" content="water world,HTML5,javascript"/>
+
+		<meta name="viewport" content="user-scalable=no, width=device-width" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+		<link rel="manifest" href="manifest.json" />
+		<link rel="apple-touch-icon-precomposed" href="pelagium_icon.180.png" />
+		<link rel="shortcut icon" href="favicon.ico" />
+		<link href='fonts.css' rel='stylesheet' type='text/css'>
+
+		<style type="text/css">
+html, body {
+	overflow:hidden;
+	height:100%;
+	margin: 0 auto;
+	font-family: sans-serif;
+	font-size: 16px;
+	color:white;
+	background-color:rgb(130,160,200);
+}
+
+#map {
+	width:100%;
+	height:100%;
+}
+#map > canvas {
+	position: absolute;
+	left: 0;
+	top: 0;
+}
+
+#controls {
+	width:100%;
+	height:24px;
+	position: absolute;
+	left:0;
+	bottom:0;
+	z-index:4;
+	background-color:rgba(0,0,0,0.33);
+}
+#controls span {
+	padding: 0 4px;
+	white-space: nowrap;
+	text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+}
+
+#paneCredentials {
+	position:fixed;
+	top:0;
+	z-index:99;
+	width:100%;
+	background-color:rgba(0,0,0,0.33);
+}
+#paneCredentials output {
+	box-sizing: border-box;
+	border:none;
+	margin: 0 0.5em;
+	display:inline;
+	font-weight:bold;
+	color:black;
+	background-color:rgba(255,255,255,0.33);
+}
+#paneCredentials label {
+	font-size:71%;
+	font-weight:bold;
+	display:inline;
+}
+
+#simState {
+	width:100%;
+	height:calc(100vh - 6em);
+}
+		</style>
+
+		<script type="text/javascript">
+window.onerror = function(msg, url, linenumber) {
+	alert('Error message: '+msg+'\nURL: '+url+'\nLine Number: '+linenumber);
+}
+
+
+const $ = function(pattern) { return document.querySelector(pattern); }
+let app = {
+	init: function() {
+		this.dbgChannel = new BroadcastChannel('pelagium_dbg');
+		this.dbgChannel.onmessage = (evt)=>{
+			const msg = evt.data;
+			console.log(msg);
+			if(typeof msg !== 'object')
+				return;
+
+			if(('turn' in msg) && ('simBeforeEvaluate' in msg))
+				$('#turn').value = msg.turn;
+			this.messages.push(msg);
+		}
+		$('#simStateLoad').addEventListener('change',
+			(evt)=>{this.simStateLoad(evt.target.files[0]); });
+	},
+	reevaluate: function(turn) {
+		if(turn===undefined)
+			turn = parseInt($('#turn').value);
+		for(let i=0; i<this.messages.length; ++i) {
+			const msg = this.messages[i];
+			if(msg.turn==turn && ('simBeforeEvaluate' in msg)) {
+				this.dbgChannel.postMessage({cmd:'evaluate', receiver:'sim', sim:msg.simBeforeEvaluate});
+				this.status('turn '+ turn +' reevaluated.')
+				break;
+			}
+		}
+	},
+	simStateLoad: function(file) {
+		let reader = new FileReader();
+		reader.addEventListener("load", ()=>{
+			const simState = $('#simState').value = reader.result;
+
+			let sim = null;
+			try {
+				sim = JSON.parse(simState);
+			}
+			catch(exc) {
+				return this.error('sim state is no valid JSON: '+exc);
+			}
+
+			this.orders = {};
+			for(let id in sim.parties) {
+				const party = sim.parties[id];
+				if(party.orders===null)
+					continue;
+				this.orders[id] = party.orders;
+				party.orders=null;
+			}
+
+			$('#turn').value = sim.turn;
+			this.dbgChannel.postMessage({receiver:'sim', sim:sim});
+			setTimeout(()=>{ this.dbgChannel.postMessage({cmd:'getSituation', receiver:'client'}); }, 100);
+			this.status('sim state loaded from '+file.name);
+		});
+		reader.readAsText(file);
+	},
+	simStateEvaluate: function() {
+		const simState = $('#simState').value;
+		if(!simState.length)
+			return this.error('load sim state from file');
+
+		const turn = $('#turn').value;
+		if(this.orders) for(let id in this.orders) {
+			const o = this.orders[id];
+			this.dbgChannel.postMessage({cmd:'postOrders', receiver:'sim',
+				party:id, orders:{orders:o, turn:turn}});
+		}
+		setTimeout(()=>{ this.dbgChannel.postMessage({cmd:'evaluate', receiver:'sim'}); }, 200);
+		this.status('sim state posted to be evaluated.');
+	},
+	simStateSave: function() {
+		const simState = $('#simState').value;
+		if(!simState.length)
+			return this.error('sim state empty');
+
+		const ts = (new Date()).toJSON();
+		const filename = 'simState_'+ts.slice(0, 10).replace(/-/g,'')+'_'+ts.slice(11, 19).replace(/:/g,'')+'.json';
+		
+		let anchor = document.createElement('a');
+		anchor.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(simState));
+		anchor.setAttribute('download', filename);
+
+		let event = document.createEvent('MouseEvents');
+		event.initEvent('click', true, true);
+		anchor.dispatchEvent(event);
+	},
+
+	status: function(msg) {
+		$('#status').innerHTML = msg;
+	},
+	error: function(msg) {
+		this.status('ERROR '+msg);
+	},
+	dbgChannel: null,
+	messages:[],
+	orders:null
+};
+document.addEventListener("DOMContentLoaded", ()=>{
+	app.init();
+});
+		</script>
+	</head>
+
+	<body
+		><div id="paneCredentials"
+			><label for="turn">turn</label
+			><output id="turn"></output
+			><button onclick="app.reevaluate();">Reevaluate</button
+
+			><textarea id="simState"></textarea
+			><input type="file" id="simStateLoad"></input
+			><button onclick="app.simStateSave();">Save</button
+			><button onclick="app.simStateEvaluate();">Evaluate</button
+		></div
+		><div id="map" style="position:relative;"
+			><canvas id="background" style="z-index:0;"></canvas
+			><canvas id="foreground" style="z-index:1;"></canvas
+		></div
+		><div id="controls"
+			><span id="status">messages are displayed here.</span
+		></div
+	></body>
+</html>

@@ -1,7 +1,7 @@
 {
 	"name":"pelagium",
 	"description": "straightforward turn-based strategy on scenic islands",
-	"version":"0.13.20200116",
+	"version":"0.14.20200204",
 	"scripts": {
 		"start": "node server.js --devMode 0 --persistence persistence"
 	},

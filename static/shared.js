@@ -310,7 +310,7 @@ function MapHex(params) {
 		if(!tile || !MD.isNavigable(tile.terrain, unit.type) || this.page.distHex(unit, dest)!=1)
 			return false;
 
-		var blockEvent = unit.isBlocked(this.page, dest, tile);
+		var blockEvent = unit.isBlocked(this.page, unit, dest, tile);
 		if(blockEvent) {
 			events.push(blockEvent);
 			return false;
@@ -518,29 +518,36 @@ function Unit(data) {
 		return { type:this.type.id, x:this.x, y:this.y, id:this.id, party:this.party.id };
 	}
 
+	const isInvisible = function(fov, pos) {
+		return (fov && fov.get(pos.x, pos.y)===0) ? true : false;
+	}
 	this.isAccessible = function(tile) {
 		 return tile && MD.isNavigable(tile.terrain, this.type);
 	}
-	this.isBlocked = function(map, dest, tile, unitsToIgnore) {
-		if(tile.unit) {
-			if(tile.unit.party.id!=this.party.id)
+	this.isBlocked = function(map, from, dest, destTile, unitsToIgnore={}, fov) {
+		if(destTile.unit) {
+			if(destTile.unit.party.id != this.party.id)
 				return false; // direct attack always allowed
-			if(!unitsToIgnore || !(tile.unit.id in unitsToIgnore))
-				return { type:'blocked', unit:this.id, x:dest.x, y:dest.y, blocker:tile.unit.id };
+			if(!(destTile.unit.id in unitsToIgnore))
+				return { type:'blocked', unit:this.id, x:dest.x, y:dest.y, blocker:destTile.unit.id };
 		}
 		// test whether movement is blocked by adjacent enemies:
-		var moveVector = MatrixHex.angleHex(this, dest);
-		var nb = map.getPolar(this.x, this.y, (moveVector+5)%6);
-		if(nb.unit && nb.unit.party.id!=this.party.id && nb.unit.type.attack)
+		var moveVector = MatrixHex.angleHex(from, dest);
+		var nbPos = MatrixHex.polar2hex(from, (moveVector+5)%6, 1);
+		var nb = map.get(nbPos.x, nbPos.y);
+		if(nb.unit && nb.unit.party.id!=this.party.id && nb.unit.type.attack
+			&& !(nb.unit.id in unitsToIgnore) && !isInvisible(fov, nbPos))
 			return { type:'blocked', unit:this.id, x:dest.x, y:dest.y, blocker:nb.unit.id };
 
-		nb = map.getPolar(this.x, this.y, (moveVector+1)%6);
-		if(nb.unit && nb.unit.party.id!=this.party.id && nb.unit.type.attack)
+		nbPos = MatrixHex.polar2hex(from, (moveVector+1)%6, 1);
+		nb = map.get(nbPos.x, nbPos.y);
+		if(nb.unit && nb.unit.party.id!=this.party.id && nb.unit.type.attack
+			&& !(nb.unit.id in unitsToIgnore) && !isInvisible(fov, nbPos))
 			return { type:'blocked', unit:this.id, x:dest.x, y:dest.y, blocker:nb.unit.id };
 		return false;
 	}
 
-	this.getFieldOfMovement = function(map, unitsToIgnore) {
+	this.getFieldOfMovement = function(map, unitsToIgnore, occupiedTiles, fov) {
 		var radius = this.type.move;
 		if(radius>3)
 			throw 'movement radii>3 not implemented.';
@@ -553,7 +560,9 @@ function Unit(data) {
 		for(var i=0; i<6; ++i) {
 			var nb = map.polar2hex(center, i, 1);
 			var tile = map.get(nb.x, nb.y);
-			if(!this.isAccessible(tile) || this.isBlocked(map, nb, tile, unitsToIgnore))
+			if(!this.isAccessible(tile) || this.isBlocked(map, center, nb, tile, unitsToIgnore, fov))
+				continue;
+			if(occupiedTiles && occupiedTiles.get(nb.x, nb.y))
 				continue;
 			var move = MD.Terrain[tile.terrain].move;
 			var newNbhTile = {x:nb.x, y:nb.y, move:move, dist:center.move+move, pred:center, unit:tile.unit};
@@ -570,7 +579,7 @@ function Unit(data) {
 		for(var i=0, end = nb2test.length; i!=end; ++i) {
 			var nb = map.neighbor(this, nb2test[i]);
 			var tile = map.get(nb.x, nb.y);
-			if(!this.isAccessible(tile))
+			if(!this.isAccessible(tile) || (occupiedTiles && occupiedTiles.get(nb.x, nb.y)))
 				continue;
 
 			var newNbhTile = null;
@@ -579,15 +588,9 @@ function Unit(data) {
 				var nbhTile = nbh.get(pos.x, pos.y);
 				if(nbhTile===null)
 					continue;
-				if(nbhTile.unit && (!unitsToIgnore || !(nbhTile.unit.id in unitsToIgnore)))
+				if(nbhTile.unit && !(unitsToIgnore && (nbhTile.unit.id in unitsToIgnore)) && !isInvisible(fov, pos))
 					continue;
-
-				this.x = pos.x;
-				this.y = pos.y;
-				var isBlocked = this.isBlocked(map, nb, tile, unitsToIgnore);
-				this.x = center.x;
-				this.y = center.y;
-				if(isBlocked)
+				if(this.isBlocked(map, pos, nb, tile, unitsToIgnore, fov))
 					continue;
 
 				var move = MD.Terrain[tile.terrain].move;
@@ -666,8 +669,8 @@ function Unit(data) {
 		}
 	}
 
-	this.getPath = function(map, destX, destY, unitsToIgnore) {
-		var fom = this.getFieldOfMovement(map, unitsToIgnore);
+	this.getPath = function(map, destX, destY, unitsToIgnore, occupiedTiles, fov) {
+		var fom = this.getFieldOfMovement(map, unitsToIgnore, occupiedTiles, fov);
 		var step = null;
 		for(var i=0, end=(fom===null) ? 0 : fom.length; i!=end && step===null; ++i)
 			if(fom[i].x==destX && fom[i].y==destY)

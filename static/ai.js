@@ -99,6 +99,9 @@ let MissionExpand = function(ai, map, x,y) {
 				orders.push(order);
 				unitsToIgnore[unit.id]=true;
 				occupiedTiles.set(dest.x, dest.y, true);
+				const expelledUnit = map.get(dest.x, dest.y).unit;
+				if(expelledUnit)
+					unitsToIgnore[expelledUnit.id] = true;
 			}
 		});
 	}
@@ -347,6 +350,8 @@ let AI = function(sim, credentials, autoPilot=false, isSynchronous=false) {
 
 	this.handleSituation = function(data) {
 		console.log(MD.Party[this.credentials.party].name, 'situation received, turn', data.turn);
+		if(!this.map)
+			return console.warn('map not yet initialized');
 
 		for(let i=0; i<this.map.data.length; ++i) {
 			let tile = this.map.data[i];
@@ -576,10 +581,14 @@ let AI = function(sim, credentials, autoPilot=false, isSynchronous=false) {
 			else {
 				let dist = MatrixHex.distHex({x:order.from_x, y:order.from_y},{x:order.to_x, y:order.to_y});
 				let unit = this.units[order.unit];
-				if(dist > unit.type.move) {
+				if(!unit) {
+					console.warn("validateOrders: order has invalid unit id", order);
+					invalidOrders.push(i);
+				}
+				else if(dist > unit.type.move) {
 					console.warn("validateOrders: unit destination beyond movement range", order, unit.serialize())
 					invalidOrders.push(i);
-				}	
+				}
 			}
 
 			// multiple orders per unit:

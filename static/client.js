@@ -173,6 +173,7 @@ client = {
 		this.orders = [];
 		this.simEvents = [];
 		this.eventListeners = {};
+		this.dbgChannel = null
 		this.turn = 1;
 		this.consistencyState = { turn:this.turn, ordersSent:false, state:this.state };
 		this.cache = new Cache((this.isDemo || this.isTutorial) ? null : 'pelagium/client', this.credentials.id);
@@ -1573,7 +1574,28 @@ client = {
 		}
 		console.log('sim runs on', this.isSimOnClient ? 'client' : 'server');
 		return this.isSimOnClient;
+	},
+	initDebug: function() {
+		if(this.dbgChannel)
+			return false;
+
+		let dbg = this.dbgChannel = new BroadcastChannel('pelagium_dbg');
+		dbg.onmessage = (evt)=>{
+			const msg = evt.data;
+			if(typeof msg !== 'object' || ('receiver' in msg && msg.receiver!=='client'))
+				return;
+			console.log('debug msg', msg);
+
+			if(msg.cmd == 'getSituation')
+				this.sim.getSituation(this.party, null, (data)=>{ this.handleSituation(data); });
+		}
+
+		this.sim._initDebug();
+		window.open('debug.html', 'pelagium debugger');
+
+		return true;
 	}
+
 }
 
 window.addEventListener("load", ()=>{
