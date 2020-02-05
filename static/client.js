@@ -598,7 +598,7 @@ client = {
 		case 'fwd':
 			this.btnMain.setFocus(false);
 			return this.dispatchOrders();
-		case 'spinner': // only devMode
+		case 'spinner':
 			return this.sim.postOrders(this.party, {orders:[{type:'forceEvaluate'}],
 				turn:this.turn});
 		case 'pause':

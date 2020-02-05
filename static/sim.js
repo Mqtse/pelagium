@@ -105,7 +105,7 @@ function Sim(params, callback) {
 
 		var turn = data.turn;
 		var orders = data.orders;
-		if((this.devMode || this.isTutorial) && orders && orders.length==1 && orders[0].type=='forceEvaluate')
+		if(this.isTutorial && orders && orders.length==1 && orders[0].type=='forceEvaluate')
 			return this._evaluateSimEvents();
 
 		if(this.dbgChannel)
@@ -120,6 +120,7 @@ function Sim(params, callback) {
 		if(this.dbgChannel)
 			this.dbgChannel.postMessage({turn:this.turn, ordersValidated:orders});
 
+		this.parties[party].originalOrders = orders;
 		this.parties[party].orders = orders = this._atomizeOrders(orders);
 		this.lastUpdateTime = new Date()/1000.0;
 
@@ -289,7 +290,7 @@ function Sim(params, callback) {
 		for(var key in this.parties) {
 			if(this.parties[key].orders!==null) {
 				ordersByParty.push(this.parties[key].orders);
-				this.parties[key].orders = null;
+				this.parties[key].orders = this.parties[key].originalOrders = null;
 			}
 			else ordersByParty.push([]);
 		}
@@ -341,8 +342,13 @@ function Sim(params, callback) {
 	this._evaluateSimEvents = function() {
 		console.log('--', this.id, 'evaluate turn', this.turn, '--');
 
+		this.prevPrevState = this.prevState;
+		let prevState = this.prevState = this._serialize();
 		if(this.dbgChannel)
-			this.dbgChannel.postMessage({turn:this.turn, simBeforeEvaluate:this._serialize()});
+			this.dbgChannel.postMessage({turn:this.turn, simBeforeEvaluate:prevState});
+		for(let key in this.parties)
+			prevState.parties[key].orders = this.parties[key].originalOrders;
+		
 		var orders = this._mergeOrders();
 		if(this.dbgChannel)
 			this.dbgChannel.postMessage({turn:this.turn, mergedOrders:orders});
@@ -736,10 +742,12 @@ function Sim(params, callback) {
 		this.parties = data.parties;
 		this.numParties = 0;
 		for(var key in this.parties) {
-			this.parties[key].fov = this.map.getFieldOfView(key);
+			let party = this.parties[key];
+			party.fov = this.map.getFieldOfView(key);
 			++this.numParties;
-			if(!('unitsBuilt' in this.parties[key]))
-				this.parties[key].unitsBuilt = 0;
+			if(!('unitsBuilt' in party))
+				party.unitsBuilt = 0;
+			party.originalOrders = null;
 		}
 		if('outcome' in data)
 			this.outcome = data.outcome;
@@ -766,7 +774,7 @@ function Sim(params, callback) {
 			++this.numParties;
 			parties[key] = { objectives:1, units:0, unitsBuilt:0,
 				victories:0, defeats:0, odds:0.0,
-				orders:null, name:MD.Party[key].name, mode:null,
+				orders:null, originalOrders:null, name:MD.Party[key].name, mode:null,
 				fov:this.map.getFieldOfView(key), knownObjectives:{} };
 			for(var partyId in scenario.starts)
 				parties[key].knownObjectives[scenario.starts[partyId]]
@@ -785,7 +793,6 @@ function Sim(params, callback) {
 			pageSz:32,
 			fractionObjectivesVictory:0.66,
 			timePerTurn: 86400, // 1 day
-			devMode: 0,
 			id:''
 		};
 		for(var key in defaults)
@@ -848,6 +855,10 @@ function Sim(params, callback) {
 			else if(msg.cmd == 'postOrders')
 				this.postOrders(msg.party, msg.orders);
 		}
+		setTimeout(()=>{
+			dbg.postMessage({ turn:this.turn, receiver:'debug',
+				prevState:this.prevState, prevPrevState: this.prevPrevState });
+		}, 1000); // allow debug window to show up
 		return true;
 	}
 
@@ -867,6 +878,7 @@ function Sim(params, callback) {
 
 	this.simEventListeners = { };
 	this.dbgChannel = null;
+	this.prevState = this.prevPrevState = null;
 	if(callback) {
 		var credentials = { party:params.party ? params.party : 1 };
 		if(this.isSimOnClient) {

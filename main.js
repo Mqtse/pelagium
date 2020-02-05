@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron')
+const { app, ipcMain, BrowserWindow } = require('electron')
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
@@ -11,7 +11,10 @@ function createWindow () {
 		height: 480,
 		backgroundColor: "#cadacf",
 		webPreferences: {
-			nodeIntegration: false
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: true,
+			//preload: __dirname+'/preload.js'
 		}
 	});
 	win.removeMenu();
@@ -64,3 +67,11 @@ app.on('activate', () => {
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and require them here.
+/*
+ipcMain.on('ipc', (evt, message) => {
+	console.log('ipc message received:', message);
+	if(message.evt==='ping')
+		win.webContents.send('ipc', {evt:'pong', receiver:'renderer', data:message.data });
+	//evt.reply('ipc', {evt:'pong', receiver:'renderer', data:message.data });
+});
+*/
