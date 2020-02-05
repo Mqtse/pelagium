@@ -201,7 +201,7 @@ function TransitionFade(background='black', alphaFrom=0.0, alphaTo=1.0, duration
 }
 
 //--- renderer -----------------------------------------------------
-function RendererSprites(dc, size) {
+function RendererSprites(dc, size, pixelRatio) {
 	const sz = size*Math.tan(Math.PI/6);
 	const lineWidth = sz/6;
 	const partySpriteSz = Math.floor(sz+lineWidth*1.5);
@@ -219,7 +219,7 @@ function RendererSprites(dc, size) {
 		return sprites;
 	}
 	function initPartySprites() {
-		const shadowR = lineWidth*0.7;
+		const shadowR = lineWidth*0.7*pixelRatio;
 		let sprites = {};
 		for(let id in MD.Party) {
 			let party = MD.Party[id];
@@ -257,14 +257,15 @@ function RendererSprites(dc, size) {
 	this.dc = dc;
 }
 
-function RendererAdhoc(dc) {
+function RendererAdhoc(dc, size, pixelRatio) {
 	this.drawUnit = function(party, id, x,y, w,h, symbolOpacity) {
-		let lineWidth = w/6;
+		const lineWidth = w/6;
+		const shadowR = lineWidth*0.7*pixelRatio;
 		dc.save();
 		dc.shadowColor='rgba(0,0,0,0.4)';
-		dc.shadowOffsetX = lineWidth*0.7;
-		dc.shadowOffsetY = lineWidth*0.7;
-		dc.shadowBlur = lineWidth*0.7;
+		dc.shadowOffsetX = shadowR;
+		dc.shadowOffsetY = shadowR;
+		dc.shadowBlur = shadowR;
 		dc.fillStyle = MD.Party[party].color;
 		dc.fillRect(x,y, w, h);
 		dc.restore();

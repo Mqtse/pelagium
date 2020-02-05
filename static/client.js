@@ -124,7 +124,7 @@ client = {
 		this.foreground = document.getElementById('foreground');
 		this.foreground.dc = extendCanvasContext(this.foreground.getContext("2d"));
 		this.vp = {
-			x:0, y:0, width:1, height:1, offsetX:0, offsetY:0, cellMetrics:null,
+			x:0, y:0, width:1, height:1, offsetX:0, offsetY:0, cellMetrics:null, pixelRatio:1,
 			mapToScreen: function(pos) {
 				let x = pos.x-this.x;
 				let y = pos.y-this.y;
@@ -182,7 +182,7 @@ client = {
 			this.cache.removeItem('/orders');
 		this.workers = [];
 		this.renderer = new RendererAdhoc(
-			this.foreground.dc, 2*this.settings.scales[this.settings.scales.length-1]);
+			this.foreground.dc, 2*this.settings.scales[this.settings.scales.length-1], this.vp.pixelRatio);
 
 		let aiOpponents = [];
 		for(let id in this.parties) {
