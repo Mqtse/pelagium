@@ -272,6 +272,7 @@
 		setInterval(()=>{ client.foregroundParty = (client.foregroundParty==0) ? 1 : 0; }, 1000);
 	
 		eludi.click2touch();
+		client.toggleInfo(true);
 		this.step(0);
 	}
 

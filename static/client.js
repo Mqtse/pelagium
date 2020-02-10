@@ -1241,7 +1241,8 @@ client = {
 			if(!this.isInsideViewport(evt, 1))
 				this.viewCenter(evt.x, evt.y);
 			this.redrawMap = {x:evt.x, y:evt.y};
-			return false;
+			setTimeout(()=>{ this.nextSimEvent(); }, 500);
+			return true;
 		}
 		case 'gameOver': {
 			console.log('event', evt);

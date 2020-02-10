@@ -800,6 +800,10 @@ app = {
 document.addEventListener("DOMContentLoaded", ()=>{
 	app.init(eludi.paramsRequest());
 });
+window.addEventListener("pageshow", (evt)=>{
+	if (evt.persisted) // reset page on back() on mobile Safari
+		window.location.reload();
+});
 		</script>
 	</head>
 

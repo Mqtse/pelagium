@@ -8,7 +8,7 @@ process.once('loaded', () => {
 			ipcRenderer.send('ipc', message);
 	});
 
-	ipcRenderer.on('ipc', (event, args) => {
-		window.postMessage(args, '*')
+	ipcRenderer.on('ipc', (event, message) => {
+		window.postMessage(message, '*')
 	})
 });

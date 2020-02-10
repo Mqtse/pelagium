@@ -201,64 +201,8 @@ function TransitionFade(background='black', alphaFrom=0.0, alphaTo=1.0, duration
 }
 
 //--- renderer -----------------------------------------------------
-function RendererSprites(dc, size, pixelRatio) {
-	const sz = size*Math.tan(Math.PI/6);
-	const lineWidth = sz/6;
-	const partySpriteSz = Math.floor(sz+lineWidth*1.5);
-	const partySpriteFactor = partySpriteSz/sz;
-
-	function initUnitSprites() {
-		let sprites = {};
-		for(let id in MD.Unit) {
-			let sprite = document.createElement('canvas');
-			sprite.width = sprite.height = sz;
-			let dc = extendCanvasContext(sprite.getContext('2d'));
-			dc.strokeUnit(id, sz,sz, lineWidth, 'white');
-			sprites[id] = sprite;
-		}
-		return sprites;
-	}
-	function initPartySprites() {
-		const shadowR = lineWidth*0.7*pixelRatio;
-		let sprites = {};
-		for(let id in MD.Party) {
-			let party = MD.Party[id];
-			let sprite = document.createElement('canvas');
-			sprite.width = sprite.height = partySpriteSz;
-			let dc = sprite.getContext('2d');
-
-			dc.shadowColor='rgba(0,0,0,0.4)';
-			dc.shadowOffsetX = shadowR;
-			dc.shadowOffsetY = shadowR;
-			dc.shadowBlur = shadowR;
-			dc.fillStyle = party.color;
-			dc.fillRect(0,0, sz,sz);
-
-			sprites[id] = sprite;
-		}
-		return sprites;
-	}
-
-	this.drawUnit = function(party, id, x,y, w,h, symbolOpacity) {
-		let sprite = this.partySprites[party];
-		this.dc.drawImage(sprite, x,y, w*partySpriteFactor, h*partySpriteFactor);
-
-		sprite = this.unitSprites[id];
-		if(symbolOpacity!==undefined) {
-			this.dc.save();
-			this.dc.globalAlpha *= symbolOpacity;
-		}
-		this.dc.drawImage(sprite, x,y, w,h);
-		if(symbolOpacity!==undefined)
-			this.dc.restore();
-	}
-	this.unitSprites = initUnitSprites();
-	this.partySprites = initPartySprites();
-	this.dc = dc;
-}
-
 function RendererAdhoc(dc, size, pixelRatio) {
-	this.drawUnit = function(party, id, x,y, w,h, symbolOpacity) {
+	this.drawUnit = function(party, type, x,y, w,h, symbolOpacity=1.0) {
 		const lineWidth = w/6;
 		const shadowR = lineWidth*0.7*pixelRatio;
 		dc.save();
@@ -275,8 +219,37 @@ function RendererAdhoc(dc, size, pixelRatio) {
 		dc.beginPath();
 		dc.rect(0,0, w,h);
 		dc.clip();
-		dc.strokeUnit(id, w,h, lineWidth, 'rgba(255,255,255,'+symbolOpacity+')');
+		dc.strokeUnit(type, w,h, lineWidth, 'rgba(255,255,255,'+symbolOpacity+')');
 		dc.restore();
+	}
+}
+
+function RendererSVG(dc, size, pixelRatio) {
+	let sprites = {};
+	for(let type in MD.Unit) {
+		let sprite = new Image();
+		sprite.src = type+'.svg';
+		sprites[type] = sprite;
+	}
+
+	this.drawUnit = function(party, type, x,y,w,h, symbolOpacity=1.0) {
+		const lineWidth = w/6;
+		const shadowR = lineWidth*0.7*pixelRatio;
+		dc.save();
+		dc.shadowColor='rgba(0,0,0,0.4)';
+		dc.shadowOffsetX = shadowR;
+		dc.shadowOffsetY = shadowR;
+		dc.shadowBlur = shadowR;
+		dc.fillStyle = MD.Party[party].color;
+		dc.fillRect(x,y,w,h);
+		dc.restore();
+
+		if(type in sprites) {
+			dc.save();
+			dc.globalAlpha *= symbolOpacity;
+			dc.drawImage(sprites[type], x,y,w,h);
+			dc.restore();
+		}
 	}
 }
 
