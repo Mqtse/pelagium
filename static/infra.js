@@ -49,6 +49,25 @@ http = {
 		return this.request('GET', url, null, callback, self);
 	},
 
+	getSync: function(url, params) {
+		if(params)
+			url+='?'+this.encodeURI(params);
+		var xhr = new XMLHttpRequest();
+		try {
+			xhr.open('GET', url, false);
+			xhr.send(null);
+		} catch(error) {
+			console && console.error(error);
+			return false;
+		}
+		if (xhr.status !== 200) {
+			console.error(url, xhr.status);
+			return false;
+		}
+		return (xhr.contentType=='application/json' || (('getResponseHeader' in xhr) && xhr.getResponseHeader('Content-Type')=='application/json'))
+			? JSON.parse(xhr.responseText) : xhr.responseText;
+	},
+
 	post: function(url, params, callback, self) {
 		return this.request('POST', url, params, callback, self);
 	},

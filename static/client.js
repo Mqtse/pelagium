@@ -75,6 +75,15 @@ function ProductionController(selector, unitColor, callback) {
 	this.visible = function() {
 		return element.style.display != 'none';
 	}
+	this.showNavalUnits = function(isShown) {
+		const display = isShown ? '' : 'none';
+		for(var i=0, end=element.children.length; i<end; ++i) {
+			var child = element.children[i];
+			const unit = MD.Unit[child.dataset.id];
+			if(unit.medium === MD.WATER)
+				child.style.display = display;
+		}
+	}
 
 	let pixelRatio = window.devicePixelRatio || 1;
 
@@ -151,12 +160,15 @@ client = {
 		this.sim = sim;
 		this.parties = credentials.parties || {};
 		delete credentials.parties;
+		this.navalUnitsAllowed = credentials.navalUnitsAllowed;
+		delete credentials.navalUnitsAllowed;
 		this.credentials = credentials;
 		this.party = this.foregroundParty = credentials.party;
 		this.isDemo = credentials.mode === 'demo';
 		this.isTutorial = credentials.mode === 'tutorial';
 		this.numPartiesMax = 2;
 		this.mapView = null;
+		this.lastSituation = null;
 		this.redrawMap = true;
 		this.showInfo = ('showInfo' in this.preferences) ? this.preferences.showInfo : true;
 		this.toggleInfo(this.showInfo);
@@ -181,7 +193,7 @@ client = {
 		if(credentials.mode=='start')
 			this.cache.removeItem('/orders');
 		this.workers = [];
-		this.renderer = new RendererAdhoc(
+		this.renderer = new RendererSVG(
 			this.foreground.dc, 2*this.settings.scales[this.settings.scales.length-1], this.vp.pixelRatio);
 
 		let aiOpponents = [];
@@ -388,12 +400,14 @@ client = {
 		if(id=='main' && id==this.currentToolbar)
 			return;
 		this.currentToolbar = id;
-		eludi.switchToSibling('toolbar_'+id, '');
-
 		if(id=='production' && this.cursor) {
+			this.toolbarProduction.showNavalUnits(
+				this.navalUnitsAllowed
+				&& this.mapView.hasNeighbor(this.cursor, (nb)=>{ return nb.terrain === MD.WATER; }));
 			var tile = this.mapView.get(this.cursor.x, this.cursor.y);
 			this.toolbarProduction.setProduction(tile.production, tile.progress);
 		}
+		eludi.switchToSibling('toolbar_'+id, '');
 	},
 
 	handlePointerEvent: function(event) {
@@ -649,6 +663,12 @@ client = {
 			&& !(this.selUnit.animation && this.selUnit.animation.type=='move'))
 		{
 			this.toggleToolbar('main');
+			if(this.selUnit.state=='embarked') {
+				this.selUnit.state='disembarked';
+				let carrier = this.mapView.get(this.selUnit.x, this.selUnit.y).unit;
+				if(carrier && carrier.carries===this.selUnit) // should always be true
+					carrier.carries = null;
+			}
 			return this.moveUnit(this.selUnit, cellX, cellY);
 		}
 
@@ -662,8 +682,19 @@ client = {
 			this.toggleToolbar('main');
 
 		if(this.selUnit && this.selUnit == tile.unit) {
-			this.deselectUnit();
-			this.setInfo();
+			if(this.selUnit.carries && this.mapView.hasNeighbor(
+				this.cursor, (nb)=>{ return nb.terrain != MD.WATER; })) // select carried unit:
+			{
+				const newSelUnit = this.selUnit.carries;
+				newSelUnit.x = this.selUnit.x;
+				newSelUnit.y = this.selUnit.y;
+				this.selectUnit(newSelUnit);
+				this.updateCursorInfo(newSelUnit);
+			}
+			else {
+				this.deselectUnit();
+				this.setInfo();
+			}
 		}
 		else {
 			if(!tile.unit || (this.selUnit == tile.unit))
@@ -766,7 +797,7 @@ client = {
 			&& pos.y < this.vp.y + this.vp.height - delta;
 	},
 
-	updateCursorInfo: function() {
+	updateCursorInfo: function(displayUnit) {
 		let tile = this.mapView.get(this.cursor.x, this.cursor.y);
 		if(!tile)
 			return;
@@ -774,7 +805,7 @@ client = {
 		let msg = '('+this.cursor.x+','+this.cursor.y+') ';
 		let info;
 
-		if(!tile.unit) {
+		if(!displayUnit && !tile.unit) {
 			if(tile.party)
 				msg += MD.Party[tile.party].name+' ';
 			const Terrain = MD.Terrain[tile.terrain];
@@ -786,17 +817,21 @@ client = {
 				+ '<p>concealment: '+ Terrain.concealment+'</p>';
 		}
 		else {
-			const Unit = tile.unit.type;
-			msg += tile.unit.party.name + ' ' + Unit.name;
-			if(tile.unit.origin)
+			const unit = displayUnit ? displayUnit : tile.unit, utype = unit.type;
+			msg += unit.party.name + ' ' + utype.name;
+			if(unit.carries)
+				msg += ', carries '+unit.carries.type.name;
+			else if(unit.state == 'embarked')
+				msg += ', embarked';
+			if(unit.origin)
 				msg += ', moved';
 
-			info = '<h1>'+Unit.name+'</h1>'
-				+ '<p>attack: '+ Unit.attack+'</p>'
-				+ '<p>defense: '+ Unit.defend+'</p>'
-				+ '<p>moves: '+ Unit.move+'</p>'
-				+ '<p>support: +'+ Unit.support+'</p>'
-				+ '<p>supp. range: '+ Unit.range+'</p>';
+			info = '<h1>'+utype.name+'</h1>'
+				+ '<p>attack: '+ utype.attack+'</p>'
+				+ '<p>defense: '+ utype.defend+'</p>'
+				+ '<p>moves: '+ utype.move+'</p>'
+				+ '<p>support: +'+ utype.support+'</p>'
+				+ '<p>supp. range: '+ utype.range+'</p>';
 		}
 
 		this.displayStatus(msg);
@@ -834,7 +869,7 @@ client = {
 	allOwnUnitsHaveOrders: function() {
 		for(var id in this.units) {
 			var unit = this.units[id];
-			if(unit.party.id == this.party && !unit.origin)
+			if(unit.party.id == this.party && !unit.origin && unit.state=='alive')
 				return false;
 		}
 		return true;
@@ -850,15 +885,7 @@ client = {
 			return;
 		this.sim.postOrders(this.party, {orders:this.orders, turn:this.turn});
 		this.consistencyState.ordersSent = true;
-		for(var id in this.units) {
-			var unit = this.units[id];
-			unit.animation = null;
-			if(!unit.origin)
-				continue;
-			unit.x = unit.origin.x;
-			unit.y = unit.origin.y;
-			delete unit.origin;
-		}
+		this.resetMapView(this.lastSituation);
 		this.switchState('waiting');
 	},
 	restoreOrders: function() {
@@ -896,15 +923,26 @@ client = {
 		this.addOrder(order);
 
 		this.selection = this.selUnit = null;
-		delete this.mapView.get(unit.x, unit.y).unit;
-		this.mapView.get(x, y).unit = unit;
+		if(unit.state!=='disembarked')
+			delete this.mapView.get(unit.x, unit.y).unit;
+		var destTile = this.mapView.get(x, y);
+
+		var isEmbarking = unit.canEmbark(destTile.unit);
+		if(!isEmbarking)
+			destTile.unit = unit;
 
 		// animate until unit is drawn at its new destination:
-		unit.animation = new AnimationMove(this.time, unit, path, (unit, order)=>{
-			this.displayUnitDestination(unit, order);
+		unit.animation = new AnimationMove(this.time, unit, path, (unit, params)=>{
+			this.displayUnitDestination(unit, params.order);
+			if(params.isEmbarking) {
+				unit.state = 'embarked';
+				var carrier = this.mapView.get(unit.x, unit.y).unit;
+				if(carrier)
+					carrier.load(unit);
+			}
 			if(this.allOwnUnitsHaveOrders())
 				this.btnMain.setFocus(true);
-		}, order);
+		}, {order:order, isEmbarking:isEmbarking});
 	},
 	displayUnitDestination: function(unit, order) {
 		unit.origin = { x:unit.x, y:unit.y };
@@ -925,7 +963,7 @@ client = {
 
 
 	drawUnit: function(dc, unit) {
-		if(unit.state=='dead')
+		if(unit!=this.selUnit && (unit.state=='dead' || unit.state=='embarked'))
 			return;
 
 		var x = unit.x-this.vp.x, y = unit.y-this.vp.y;
@@ -953,6 +991,12 @@ client = {
 		if(this.state=='input' && !unit.animation && !unit.origin && unit.party.id==this.party)
 			symbolOpacity = Math.min(0.75 + Math.abs(this.time % 1.0 - 0.5), 1.0);
 		this.renderer.drawUnit(unit.party.id, unit.type.id, x,y,w,h, symbolOpacity);
+
+		if(unit.party.id == this.party && unit.carries) {
+			dc.fillStyle = MD.Party[this.party].color;
+			w*=0.3; h*=0.3;
+			dc.fillRect(x+w,y+h,w,h);
+		}
 		dc.restore();
 	},
 
@@ -993,8 +1037,10 @@ client = {
 			return;
 
 		// foreground:
-		dc = this.foreground.dc;
-		if(this.selUnit && this.selUnit.type.range) {
+		var dc = this.foreground.dc;
+		if(this.selUnit && this.selUnit.type.range
+			&& this.selUnit.state in {'alive':true, 'disembarked':true})
+		{
 			const cellR = this.vp.cellMetrics.r;
 			this.drawMapCircle(dc, this.selUnit, (this.selUnit.type.range-0.2)*cellR*2,
 				{strokeStyle: 'rgba(255,255,255,0.5)', lineWidth:cellR/6, lineDash:[cellR/4,cellR/4]});
@@ -1003,7 +1049,7 @@ client = {
 		let foregroundUnits = [];
 		for(var id in this.units) {
 			var unit = this.units[id];
-			if(this.isInsideViewport(unit)) {
+			if(unit!=this.selUnit && this.isInsideViewport(unit)) {
 				if(unit.party.id == this.foregroundParty)
 					foregroundUnits.push(unit);
 				else
@@ -1012,6 +1058,8 @@ client = {
 		}
 		for(let i=foregroundUnits.length; i-->0; )
 			this.drawUnit(dc, foregroundUnits[i]);
+		if(this.selUnit && this.isInsideViewport(this.selUnit))
+			this.drawUnit(dc, this.selUnit); // always on top
 
 		if(this.selection)
 			for(var i=this.selection.length; i--; )
@@ -1067,7 +1115,7 @@ client = {
 			this.switchState('replay');
 	},
 
-	handleSituation: function(data) {
+	resetMapView: function(data) {
 		for(var i=0; i<this.mapView.data.length; ++i) {
 			var tile = this.mapView.data[i];
 			delete tile.unit;
@@ -1080,7 +1128,9 @@ client = {
 		for(var i=0; i<data.units.length; ++i) {
 			var unit = data.units[i];
 			var tile = this.mapView.get(unit.x, unit.y);
-			tile.unit = this.units[unit.id] = new Unit(unit);
+			unit = tile.unit = this.units[unit.id] = new Unit(unit);
+			if(unit.carries)
+				this.units[unit.carries.id] = unit.carries;
 		}
 		if(this.selUnit)
 			this.selectUnit(this.units[this.selUnit.id]);
@@ -1094,6 +1144,11 @@ client = {
 				tile.progress = obj.progress;
 			}
 		}
+	},
+
+	handleSituation: function(data) {
+		this.lastSituation = { units:data.units, objectives:data.objectives };
+		this.resetMapView(data);
 
 		this.fov = new MatrixHex(data.fov);
 
@@ -1162,6 +1217,7 @@ client = {
 		}
 
 		switch(evt.type) {
+		case 'disembark':
 		case 'retreat':
 		case 'move': {
 			//console.log('event', evt);
@@ -1173,6 +1229,9 @@ client = {
 
 			if(!this.isInsideViewport(unit, 2))
 				this.viewCenter(unit.x, unit.y);
+
+			if(evt.type === 'disembark')
+				unit.state='alive';
 
 			let dest = this.mapView.get(evt.to_x, evt.to_y);
 			if(dest.terrain===MD.OBJ) { // try to show previous party
@@ -1195,13 +1254,31 @@ client = {
 
 			unit.animation = new AnimationMove(this.time, unit, {x:evt.to_x, y:evt.to_y},
 				(unit, evt)=>{
-					delete this.mapView.get(evt.from_x, evt.from_y).unit;
+					let originTile = this.mapView.get(evt.from_x, evt.from_y);
+					if(evt.type==='disembark') {
+						if(originTile.unit)
+							originTile.unit.carries = null;
+						else
+							console.warn('no ship found at', evt.from_x, evt.from_y);
+					}
+					else
+						delete originTile.unit;
 					unit.x = evt.to_x;
 					unit.y = evt.to_y;
-					this.mapView.get(unit.x, unit.y).unit = unit;
+					let destTile = this.mapView.get(unit.x, unit.y);
+					if(!unit.canEmbark(destTile.unit))
+						destTile.unit = unit;
 					this.nextSimEvent();
 				}, evt);
 			return true;
+		}
+		case 'embark': {
+			this.displayStatus(MD.Party[unit.party.id].name+' '+unit.type.name+' embarks');
+			unit.state = 'embarked';
+			let carrier = this.mapView.get(evt.x, evt.y).unit;
+			if(carrier && carrier.id == evt.carrier)
+				carrier.load(unit);
+			return false;
 		}
 		case 'support': {
 			//console.log('event', evt);
@@ -1241,7 +1318,7 @@ client = {
 			if(!this.isInsideViewport(evt, 1))
 				this.viewCenter(evt.x, evt.y);
 			this.redrawMap = {x:evt.x, y:evt.y};
-			setTimeout(()=>{ this.nextSimEvent(); }, 500);
+			setTimeout(()=>{ this.nextSimEvent(); }, 300);
 			return true;
 		}
 		case 'gameOver': {

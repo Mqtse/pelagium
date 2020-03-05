@@ -68,6 +68,18 @@ function extendCanvasContext(dc) {
 		case 'art':
 			this.circle(w/2,h/2, 1.25*lineWidth, {fillStyle:color});
 			break;
+		case 'sail':
+			this.beginPath();
+			this.moveTo(w*0.5,h*0.3);
+			this.arc(w*0.5,h*0.2, w*0.1, 0.5*Math.PI, 2.5*Math.PI, false);
+			this.lineTo(w*0.5,h*0.8);
+			this.moveTo(w*0.2, h*0.35);
+			this.lineTo(w*0.8,h*0.35);
+			this.stroke();
+			this.beginPath();
+			this.arc(w*0.5,h*0.45, w*0.4, 0.15*Math.PI, 0.85*Math.PI, false);
+			this.stroke();
+			break;
 		}
 	}
 
@@ -225,29 +237,63 @@ function RendererAdhoc(dc, size, pixelRatio) {
 }
 
 function RendererSVG(dc, size, pixelRatio) {
-	let sprites = {};
+	let silhouettes = {};
+	let symbols = {};
 	for(let type in MD.Unit) {
-		let sprite = new Image();
-		sprite.src = type+'.svg';
-		sprites[type] = sprite;
+		const unitType = MD.Unit[type];
+		if(!unitType.symbol) {
+			let sprite = new Image();
+			sprite.src = type+'.svg';
+			silhouettes[type] = sprite;
+		}
+		else {
+			const symbData = unitType.symbol;
+			let symbol = symbols[type] = { coloredPaths:new Path2D(), monoPaths:new Path2D() };
+			let m = document.createElementNS('http://www.w3.org/2000/svg', 'svg').createSVGMatrix();
+			m.a = 1/symbData.width; m.b = 0;
+			m.c = 0; m.d = 1/symbData.width;
+			m.e = -0.2; m.f = -0.3;
+
+			for(let key in symbol)
+				for(let i=0; i<symbData[key].length; ++i)
+					symbol[key].addPath(new Path2D(symbData[key][i]), m);
+		}
 	}
 
 	this.drawUnit = function(party, type, x,y,w,h, symbolOpacity=1.0) {
 		const lineWidth = w/6;
 		const shadowR = lineWidth*0.7*pixelRatio;
-		dc.save();
-		dc.shadowColor='rgba(0,0,0,0.4)';
-		dc.shadowOffsetX = shadowR;
-		dc.shadowOffsetY = shadowR;
-		dc.shadowBlur = shadowR;
-		dc.fillStyle = MD.Party[party].color;
-		dc.fillRect(x,y,w,h);
-		dc.restore();
 
-		if(type in sprites) {
+		if(type in silhouettes) {
+			dc.save();
+			dc.shadowColor='rgba(0,0,0,0.4)';
+			dc.shadowOffsetX = shadowR;
+			dc.shadowOffsetY = shadowR;
+			dc.shadowBlur = shadowR;
+			dc.fillStyle = MD.Party[party].color;
+			dc.fillRect(x,y,w,h);
+			dc.restore();
+
 			dc.save();
 			dc.globalAlpha *= symbolOpacity;
-			dc.drawImage(sprites[type], x,y,w,h);
+			dc.drawImage(silhouettes[type], x,y,w,h);
+			dc.restore();
+		}
+		else if(type in symbols) {
+			dc.save();
+			dc.shadowColor='rgba(0,0,0,0.4)';
+			dc.shadowOffsetX = shadowR;
+			dc.shadowOffsetY = shadowR;
+			dc.shadowBlur = shadowR;
+
+			let symbol = symbols[type];
+			dc.translate(x,y);
+			dc.scale(w*1.75, h*1.75);
+			dc.fillStyle = MD.Party[party].color;
+			dc.fill(symbol.coloredPaths);
+			dc.globalAlpha *= symbolOpacity;
+			dc.fillStyle='#fff';
+			dc.fill(symbol.monoPaths);
 			dc.restore();
 		}
 	}

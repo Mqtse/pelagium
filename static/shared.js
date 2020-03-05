@@ -136,6 +136,14 @@ function MatrixHex(width, height, value) {
 		var nb = this.polar2hex(pos, dir);
 		return this.isInside(nb) ? this.get(nb.x, nb.y) : null;
 	}
+	this.hasNeighbor = function(pos, cmpFunc) {
+		for(let i=0; i<6; ++i) {
+			const nb = this.getNeighbor(pos, i);
+			if(nb && cmpFunc(nb))
+				return true;
+		}
+		return false;
+	}
 	this.getRegion = function(resultMatrix, pos, regionId, cmpFunc) {
 		var open=[{x:pos.x,y:pos.y}], visited=[];
 		while(open.length) {
@@ -307,8 +315,12 @@ function MapHex(params) {
 	}
 	this.unitMove = function(unit, dest, events) {
 		var tile = this.page.get(dest.x, dest.y);
-		if(!tile || !MD.isNavigable(tile.terrain, unit.type) || this.page.distHex(unit, dest)!=1)
+		if(!tile || this.page.distHex(unit, dest)!=1)
 			return false;
+
+		if(!MD.isNavigable(tile.terrain, unit.type))
+			if(!tile.unit || !tile.unit.hasCapacity(unit))
+				return false;
 
 		var blockEvent = unit.isBlocked(this.page, unit, dest, tile);
 		if(blockEvent) {
@@ -319,8 +331,7 @@ function MapHex(params) {
 		var start = this.page.get(unit.x, unit.y);
 		if(start && start.unit == unit)
 			start.unit = null;
-		unit.x = dest.x;
-		unit.y = dest.y;
+		unit.moveTo(dest);
 		return true;
 	}
 	this.unitsInit = function(params) {
@@ -422,14 +433,7 @@ MapHex.finalizeAppearance = function(page) {
 			tile.color = (new Color(MD.Terrain[tile.terrain].color)).variegate(4).rgbString();
 
 		else if(tile.terrain==MD.WATER) {
-			var pos = { x:x, y:y };
-			var nb=null;
-			for(var i=0; i<6 && !nb; ++i) {
-				nb = page.getNeighbor(pos, i);
-				if(nb && nb.terrain==MD.WATER)
-					nb=null;
-			}
-			if(!nb)
+			if(!page.hasNeighbor({x:x, y:y}, (nb)=>{ return nb.terrain!=MD.WATER; }))
 				tile.color=null;
 			else
 				tile.color = (new Color(MD.Terrain[tile.terrain].color)).variegate(3).rgbString();
@@ -515,7 +519,10 @@ MapHex.draw = function(canvas, map, vp, cellMetrics, fieldOfView, fastMode) {
 //--- Unit ---------------------------------------------------------
 function Unit(data) {
 	this.serialize = function() {
-		return { type:this.type.id, x:this.x, y:this.y, id:this.id, party:this.party.id };
+		let data = { type:this.type.id, x:this.x, y:this.y, id:this.id, party:this.party.id };
+		if(this.type.capacity && this.carries)
+			data.carries = this.carries.serialize();
+		return data;
 	}
 
 	const isInvisible = function(fov, pos) {
@@ -525,10 +532,17 @@ function Unit(data) {
 		 return tile && MD.isNavigable(tile.terrain, this.type);
 	}
 	this.isBlocked = function(map, from, dest, destTile, unitsToIgnore={}, fov) {
-		if(destTile.unit) {
-			if(destTile.unit.party.id != this.party.id)
-				return false; // direct attack always allowed
-			if(!(destTile.unit.id in unitsToIgnore))
+		if(destTile.unit && !(destTile.unit.id in unitsToIgnore)) {
+			if(destTile.unit.party.id != this.party.id) { // direct attack
+				if(this.type.amphibious || this.type.medium!=MD.GROUND)
+					return false;
+				const originTerrain = map.get(from.x, from.y).terrain;
+				if(originTerrain == MD.WATER) // no amphibious attack capabilities
+					return { type:'blocked', unit:this.id, x:dest.x, y:dest.y, blocker:destTile.unit.id };
+				return false;
+			}
+			if(!destTile.unit.type.capacity || this.type.medium!=MD.GROUND
+				||(destTile.unit.carries && !(destTile.unit.carries.id in unitsToIgnore))) 
 				return { type:'blocked', unit:this.id, x:dest.x, y:dest.y, blocker:destTile.unit.id };
 		}
 		// test whether movement is blocked by adjacent enemies:
@@ -536,36 +550,59 @@ function Unit(data) {
 		var nbPos = MatrixHex.polar2hex(from, (moveVector+5)%6, 1);
 		var nb = map.get(nbPos.x, nbPos.y);
 		if(nb.unit && nb.unit.party.id!=this.party.id && nb.unit.type.attack
-			&& !(nb.unit.id in unitsToIgnore) && !isInvisible(fov, nbPos))
+			&& !(nb.unit.id in unitsToIgnore) && !isInvisible(fov, nbPos)
+			&& (this.type.medium==nb.unit.type.medium))
 			return { type:'blocked', unit:this.id, x:dest.x, y:dest.y, blocker:nb.unit.id };
 
 		nbPos = MatrixHex.polar2hex(from, (moveVector+1)%6, 1);
 		nb = map.get(nbPos.x, nbPos.y);
 		if(nb.unit && nb.unit.party.id!=this.party.id && nb.unit.type.attack
-			&& !(nb.unit.id in unitsToIgnore) && !isInvisible(fov, nbPos))
+			&& !(nb.unit.id in unitsToIgnore) && !isInvisible(fov, nbPos)
+			&& (this.type.medium==nb.unit.type.medium))
 			return { type:'blocked', unit:this.id, x:dest.x, y:dest.y, blocker:nb.unit.id };
 		return false;
 	}
 
 	this.getFieldOfMovement = function(map, unitsToIgnore, occupiedTiles, fov) {
-		var radius = this.type.move;
+		const originTerrain = map.get(this.x, this.y).terrain;
+		const radius = (this.type.medium==MD.GROUND && originTerrain==MD.WATER) ? 1 : this.type.move;
 		if(radius>3)
 			throw 'movement radii>3 not implemented.';
 
+		const mayBoard = (originTerrain, tile, unitsToIgnore)=>{
+			if(this.type.medium!=MD.GROUND || originTerrain===MD.WATER)
+				return false;
+			const carrier = tile.unit;
+			if(carrier && !(unitsToIgnore && (carrier.id in unitsToIgnore))) {
+				if(!carrier.type.capacity || this.party.id != carrier.party.id)
+					return false;
+				if(!carrier.carries || (unitsToIgnore && (carrier.carries.id in unitsToIgnore)))
+					return true;
+			}
+			return false;
+		}
+
 		var nbh = new MatrixSparse(null);
-		var center = { x:this.x, y:this.y, move:MD.Terrain[map.get(this.x, this.y).terrain].move,
+		var center = { x:this.x, y:this.y, move:MD.Terrain[originTerrain].move,
 			dist:0, pred:null};
 		nbh.set(this.x, this.y, center);
 
 		for(var i=0; i<6; ++i) {
 			var nb = map.polar2hex(center, i, 1);
 			var tile = map.get(nb.x, nb.y);
-			if(!this.isAccessible(tile) || this.isBlocked(map, center, nb, tile, unitsToIgnore, fov))
+
+			if(this.isBlocked(map, center, nb, tile, unitsToIgnore, fov))
 				continue;
-			if(occupiedTiles && occupiedTiles.get(nb.x, nb.y))
-				continue;
-			var move = MD.Terrain[tile.terrain].move;
-			var newNbhTile = {x:nb.x, y:nb.y, move:move, dist:center.move+move, pred:center, unit:tile.unit};
+
+			const isBoardable = mayBoard(originTerrain, tile, unitsToIgnore);
+			if(!isBoardable) {
+				if(!this.isAccessible(tile) || (occupiedTiles && occupiedTiles.get(nb.x, nb.y)))
+					continue;
+			}
+
+			const move = MD.Terrain[tile.terrain].move;
+			const currDist = isBoardable ? 2*radius : center.move+move;
+			var newNbhTile = {x:nb.x, y:nb.y, move:move, dist:currDist, pred:center, unit:tile.unit};
 			nbh.set(nb.x, nb.y, newNbhTile);
 		}
 
@@ -579,24 +616,33 @@ function Unit(data) {
 		for(var i=0, end = nb2test.length; i!=end; ++i) {
 			var nb = map.neighbor(this, nb2test[i]);
 			var tile = map.get(nb.x, nb.y);
-			if(!this.isAccessible(tile) || (occupiedTiles && occupiedTiles.get(nb.x, nb.y)))
-				continue;
+
+			const isBoardable = mayBoard(originTerrain, tile, unitsToIgnore);
+			if(!isBoardable) {
+				if(!this.isAccessible(tile) || (occupiedTiles && occupiedTiles.get(nb.x, nb.y)))
+					continue;
+			}
 
 			var newNbhTile = null;
 			for(var dir=0; dir<6; ++dir) {
 				var pos = map.polar2hex(nb, dir, 1);
 				var nbhTile = nbh.get(pos.x, pos.y);
+
 				if(nbhTile===null)
 					continue;
-				if(nbhTile.unit && !(unitsToIgnore && (nbhTile.unit.id in unitsToIgnore)) && !isInvisible(fov, pos))
+				if(nbhTile.unit && !(unitsToIgnore && (nbhTile.unit.id in unitsToIgnore))
+					&& !isInvisible(fov, pos))
 					continue;
 				if(this.isBlocked(map, pos, nb, tile, unitsToIgnore, fov))
 					continue;
 
-				var move = MD.Terrain[tile.terrain].move;
+				const move = MD.Terrain[tile.terrain].move;
 				var currDist = nbhTile.dist + nbhTile.move + move;
-				if(!newNbhTile || currDist<newNbhTile.dist)
+				if(!newNbhTile || currDist<newNbhTile.dist) {
+					if(isBoardable && currDist<2*radius)
+						currDist = 2*radius;
 					newNbhTile = {x:nb.x, y:nb.y, move:move, dist:currDist, pred:nbhTile, unit:tile.unit};
+				}
 			}
 			if(newNbhTile!==null && newNbhTile.dist<=2*radius)
 				nbh.set(nb.x, nb.y, newNbhTile);
@@ -612,13 +658,14 @@ function Unit(data) {
 	}
 
 	this.getFieldOfView = function(map, fov) {
-		var range = this.type ? this.type.visualRange : 1;
-		var pos = { x:this.x, y:this.y };
+		const range = this.type ? this.type.visualRange : 1;
+		const isNavalUnit = this.type && this.type.medium == MD.WATER;
+		let pos = { x:this.x, y:this.y };
 		if(fov.isInside(pos))
 			fov.set(pos.x, pos.y, 1);
 		if(range<1)
 			return;
-		for(var dir=6; dir--;) {
+		for(let dir=6; dir--;) {
 			pos = MatrixHex.polar2hex(this, dir);
 			if(fov.isInside(pos))
 				fov.set(pos.x, pos.y, 1);
@@ -626,21 +673,21 @@ function Unit(data) {
 		if(range<2)
 			return;
 		// straight cases:
-		for(var dir=6; dir--;) {
+		for(let dir=6; dir--;) {
 			pos = MatrixHex.polar2hex(this, dir, 2);
 			if(!fov.isInside(pos))
 				continue;
-			var terrain = map.get(pos.x, pos.y).terrain;
+			let terrain = map.get(pos.x, pos.y).terrain;
 			if(MD.Terrain[terrain].concealment)
 				continue;
-			var inBetween = MatrixHex.polar2hex(this, dir);
+			const inBetween = MatrixHex.polar2hex(this, dir);
 			terrain = map.get(inBetween.x, inBetween.y).terrain;
-			if(MD.Terrain[terrain].concealment)
+			if(MD.Terrain[terrain].concealment || (isNavalUnit && terrain!=MD.WATER))
 				continue;
 			fov.set(pos.x, pos.y, 1);
 		}
 		// now the ugly cases: range >1 non-straight
-		var remainingTiles = [
+		const remainingTiles = [
 			{ pos:{x:this.x+2, y:this.y }, dirs:[1,2] },
 			{ pos:{x:this.x-2, y:this.y }, dirs:[4,5] },
 			{ pos:{x:this.x-1, y:(this.x%2==1)?this.y-1:this.y-2 }, dirs:[0,5] },
@@ -648,22 +695,22 @@ function Unit(data) {
 			{ pos:{x:this.x+1, y:(this.x%2==1)?this.y+2:this.y+1 }, dirs:[2,3] },
 			{ pos:{x:this.x-1, y:(this.x%2==1)?this.y+2:this.y+1 }, dirs:[3,4] },
 		]
-		for(var j=remainingTiles.length; j--; ) {
-			var tile = remainingTiles[j];
+		for(let j=remainingTiles.length; j--; ) {
+			const tile = remainingTiles[j];
 			pos = tile.pos;
 			if(!fov.isInside(pos))
 				continue;
-			var terrain = map.get(pos.x, pos.y).terrain;
+			let terrain = map.get(pos.x, pos.y).terrain;
 			if(MD.Terrain[terrain].concealment)
 				continue;
-			var inBetween = MatrixHex.polar2hex(this, tile.dirs[0]);
+			let inBetween = MatrixHex.polar2hex(this, tile.dirs[0]);
 			terrain = map.get(inBetween.x, inBetween.y).terrain;
-			if(!MD.Terrain[terrain].concealment)
+			if(!MD.Terrain[terrain].concealment && !(isNavalUnit && terrain!=MD.WATER))
 				fov.set(pos.x, pos.y, 1);
 			else if(tile.dirs.length>1) {
 				inBetween = MatrixHex.polar2hex(this, tile.dirs[1]);
 				terrain = map.get(inBetween.x, inBetween.y).terrain;
-				if(!MD.Terrain[terrain].concealment)
+				if(!MD.Terrain[terrain].concealment && !(isNavalUnit && terrain!=MD.WATER))
 					fov.set(pos.x, pos.y, 1);
 			}
 		}
@@ -691,6 +738,32 @@ function Unit(data) {
 		return this.type.defend * MD.Terrain[location.terrain].defend;
 	}
 
+	this.canEmbark = function(carrier) {
+		if(!carrier || this.type.medium!==MD.GROUND || carrier.type.medium!==MD.WATER)
+			return false;
+		return this.party.id===carrier.party.id;
+	}
+	this.hasCapacity = function(unit) {
+		if(!this.type.capacity || unit.type.medium!=MD.GROUND || this.party.id != unit.party.id)
+			return false;
+		return !this.carries;
+	}
+	this.load = function(unit) {
+		if(!this.hasCapacity(unit))
+			return false;
+		this.carries = unit;
+		unit.state = 'embarked';
+		return true;
+	}
+	this.moveTo = function(dest) {
+		this.x = dest.x;
+		this.y = dest.y;
+		if(this.carries) {
+			this.carries.x = dest.x; 
+			this.carries.y = dest.y;
+		}
+	}
+
 	this.type = MD.Unit[data.type ? data.type : 'inf'];
 	this.x = data.x;
 	this.y = data.y;
@@ -703,6 +776,11 @@ function Unit(data) {
 	this.party = MD.Party[data.party];
 	this.animation = null;
 	this.destination = null;
+	if(this.type.capacity) {
+		this.carries = data.carries ? new Unit(data.carries) : null;
+		if(this.carries)
+			this.carries.state = 'embarked';
+	}
 	this.state = 'alive';
 }
 Unit.serial = 0;

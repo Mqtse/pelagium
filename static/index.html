@@ -503,6 +503,8 @@ app = {
 			dc.scale(window.devicePixelRatio, window.devicePixelRatio);
 		}
 		MapHex.draw(canvas, page, vp, cellMetrics);
+		if(data.navalUnitsAllowed)
+			dc.strokeUnit('sail', 32, 32, 4, 'rgb(85,85,85)');
 	},
 	addScenarios: function(data) {
 		this.scenarios = data;

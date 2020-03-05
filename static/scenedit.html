@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<HTML>
+	<head>
+		<title>pelagium scenario editor</title>
+		<meta charset="ISO-8859-15">
+		<meta name="author" content="Gerald Franz"/>
+		<meta name="description" content="turn-based online strategy game"/>
+		<meta name="keywords" content="water world,HTML5,javascript"/>
+
+		<meta name="viewport" content="user-scalable=no, width=device-width" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+		<link rel="manifest" href="manifest.json" />
+		<link rel="apple-touch-icon-precomposed" href="pelagium_icon.180.png" />
+		<link rel="shortcut icon" href="favicon.ico" />
+		<link href='fonts.css' rel='stylesheet' type='text/css'>
+
+		<style type="text/css">
+html, body {
+	overflow:hidden;
+	height:100%;
+	margin: 0 auto;
+	font-family: sans-serif;
+	font-size: 16px;
+	color:white;
+	background-color:rgb(127,127,127);
+}
+
+#map {
+	width:100%;
+	height:100%;
+}
+#map > canvas {
+	position: absolute;
+	left: 0;
+	top: 0;
+}
+
+#controls {
+	width:100%;
+	height:20px;
+	position: absolute;
+	left:0;
+	bottom:0;
+	z-index:4;
+	background-color:rgba(0,0,0,0.33);
+}
+#controls span {
+	padding: 0 4px;
+	white-space: nowrap;
+	text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+}
+
+#paneCredentials {
+	position:fixed;
+	top:0;
+	z-index:99;
+	width:100%;
+	height: 32px;
+	display:flex;
+	align-items: center;
+	background-color:rgba(0,0,0,0.33);
+}
+#paneCredentials input {
+	box-sizing: border-box; -webkit-box-sizing: border-box; -moz-box-sizing: border-box;
+	border:none;
+	margin: 0 1em 0 0.2em;
+	display:inline;
+	font-weight:bold;
+	color:black;
+	background-color:rgba(255,255,255,0.33);
+}
+#paneCredentials label {
+	font-size:71%;
+	font-weight:bold;
+	display:inline;
+	padding-left: 1em;
+}
+#paneCredentials button {
+	height: 100%;
+}
+		</style>
+
+		<script type="text/javascript" src="masterdata.js"></script>
+		<script type="text/javascript" src="infra.js"></script>
+		<script type="text/javascript" src="shared.js"></script>
+		<script type="text/javascript" src="renderer.js"></script>
+		<script type="text/javascript">
+
+const $ = function(pattern) { return document.querySelector(pattern); }
+let app = {
+	init: function() {
+		const scale = 24;
+		this.background = document.getElementById('background');
+		this.background.dc = extendCanvasContext(this.background.getContext("2d"));
+		this.foreground = document.getElementById('foreground');
+		this.foreground.dc = extendCanvasContext(this.foreground.getContext("2d"));
+		eludi.addPointerEventListener(this.foreground, (event)=>{ this.handlePointerEvent(event); });
+		this.vp = { x:-1, y:-2, width:1, height:1, cellMetrics: MapHex.calculateCellMetrics(scale), pixelRatio:1,
+			mapToScreen: function(pos) {
+				let x = pos.x-this.x;
+				let y = pos.y-this.y;
+				let offsetY = this.offsetY + ((pos.x%2) ? 0.5*this.cellMetrics.h : 0);
+				return { x:x*this.cellMetrics.w+this.offsetX, y:y*this.cellMetrics.h+offsetY };
+			},
+			screenToMap: function(screen) {
+				let offsetX = this.offsetX-0.75*this.cellMetrics.r;
+				let cellX = Math.floor((screen.x-offsetX) / this.cellMetrics.w) + this.x;
+				let offsetY = this.offsetY+((cellX%2) ? 0 : -0.5*this.cellMetrics.h);
+				let cellY = Math.floor((screen.y-offsetY) / this.cellMetrics.h) + this.y;
+				return { x:cellX, y:cellY };
+			}
+		};
+		this.resize();
+		window.onresize = function() { app.resize(); }
+
+		this.renderer = new RendererAdhoc(
+			this.foreground.dc, 2*scale, this.vp.pixelRatio);
+
+		this.update();
+	},
+
+	resize: function(scaleOnly) {
+		var reservedWidth=0, reservedHeight=0;
+		if(!('offsetX' in this.vp)) {
+			this.vp.offsetX = 0.5*this.vp.cellMetrics.r;
+			this.vp.offsetY = 0;
+		}
+		if(!scaleOnly) {
+			this.background.width = this.foreground.width = window.innerWidth-reservedWidth;
+			this.background.height = this.foreground.height = window.innerHeight-reservedHeight;
+		}
+		this.vp.width = Math.ceil(1.25+this.background.width/this.vp.cellMetrics.w);
+		this.vp.height = Math.ceil(1.5+this.background.height/this.vp.cellMetrics.h);
+	},
+
+	handlePointerEvent: function(event) {
+		switch(event.type) {
+		case 'start':
+			const cell = this.vp.screenToMap(event);
+			this.handleMapInput(this.tool, cell.x, cell.y);
+			break;
+		}
+	},
+	handleMapInput: function(type, cellX, cellY) {
+		let map = this.mapView;
+		if(!map || !map.isInside({x:cellX, y:cellY}))
+			return;
+
+		let cell = map.get(cellX, cellY);
+		switch(type) {
+		case 'terrain':
+			let terrain = MD.Terrain[cell.terrain];
+			cell.terrain = this.terrain;
+			if(cell.party && cell.terrain!=MD.OBJ)
+				delete cell.party;
+			break;
+		case 'unit':
+			if(cell.unit && cell.unit.type == this.unit)
+				delete cell.unit;
+			else
+				cell.unit = {type:this.unit, x:cellX, y:cellY, party:this.party};
+			break;
+		case 'party':
+			if(cell.terrain == MD.OBJ) {
+				if(!this.party)
+					delete cell.party;
+				else
+					cell.party = this.party;
+			}
+			if(cell.unit)
+				cell.unit.party = this.party;
+			break;
+		}
+		let msg = '('+cellX+','+cellY+') ';
+		if(cell.party)
+			msg += MD.Party[cell.party].name+' ';
+		msg += MD.Terrain[cell.terrain].name;
+		if(cell.unit)
+			msg += ' '+MD.Party[cell.unit.party].name+' '+MD.Unit[cell.unit.type].name;
+		this.status(msg);
+	},
+	nextTerrain: function() {
+		if(this.tool != 'terrain')
+			this.tool = 'terrain';
+		else if(++this.terrain >= MD.Terrain.length)
+			this.terrain = 0; 
+		$('#btn_terrain').innerText = MD.Terrain[this.terrain].name;
+		this.status('tool '+this.tool+' '+MD.Terrain[this.terrain].name+' selected');
+	},
+	nextUnit: function() {
+		const unitTypes = Object.keys(MD.Unit);
+		if(this.tool != 'unit')
+			this.tool = 'unit';
+		else for(let i=0; i<unitTypes.length; ++i)
+			if(unitTypes[i] == this.unit) {
+				this.unit = unitTypes[(i+1)%unitTypes.length];
+				$('#btn_unit').innerText = this.unit;
+				break;
+			}
+		this.status('tool '+this.tool+' '+MD.Unit[this.unit].name+' selected');
+	},
+	nextParty: function() {
+		if(this.tool != 'party')
+			this.tool = 'party';
+		else if(++this.party >= MD.Party.length)
+			this.party = 0;
+		$('#btn_party').innerText = MD.Party[this.party].name;
+		this.status('tool '+this.tool+' '+MD.Party[this.party].name+' selected');
+	},
+
+	drawUnit: function(unit) {
+		var x = unit.x-this.vp.x, y = unit.y-this.vp.y;
+		var w, h;
+		var w = h = this.vp.cellMetrics.r;
+		var offsetOdd = (unit.x%2) ? 0.5*this.vp.cellMetrics.h : 0;
+
+		x = x*this.vp.cellMetrics.w + this.vp.offsetX - w/2;
+		y = y*this.vp.cellMetrics.h + this.vp.offsetY + offsetOdd - h/2;
+
+		this.renderer.drawUnit(unit.party, unit.type, x,y,w,h);
+	},
+	draw: function() {
+		if(this.mapView) {
+			const map = this.mapView;
+			this.background.dc.clearRect(0, 0, this.background.width, this.background.height);
+			MapHex.draw(this.background, map, this.vp, this.vp.cellMetrics, null);
+
+			this.foreground.dc.clearRect(0, 0, this.foreground.width, this.foreground.height);
+			for(let y=0; y<map.height; ++y) for(let x=0; x<map.width; ++x) {
+				const cell = map.get(x,y);
+				if(cell.unit)
+					this.drawUnit(cell.unit);
+			}
+		}
+	},
+
+	update: function() {
+		this.draw();
+		requestAnimationFrame(()=>{ this.update(); });
+	},
+
+	serialize: function() {
+		const map = this.mapView;
+		let terrain = new MatrixHex(map.width, map.height, 0);
+		let units=[];
+		let data = { terrain:null, starts:{}, objectives:[] };
+		for(let id in this.flags)
+			data[id] = this.flags[id];
+
+		let objCounter = 0;
+		for(let x=0; x<map.width; ++x) for(let y=0; y<map.height; ++y) {
+			const cell = map.get(x,y);
+			terrain.set(x,y, cell.terrain);
+			if(cell.terrain==MD.OBJ) {
+				data.objectives.push({x:x, y:y});
+				if(cell.party) {
+					if(!(cell.party in data.starts))
+						data.starts[cell.party] = objCounter;
+					data.objectives[data.objectives.length-1].party = cell.party;
+				}
+				++objCounter;
+			}
+			if(cell.unit)
+				units.push(cell.unit);
+		}
+		data.terrain = terrain.serialize(true);
+		if(units.length)
+			data.units = units;
+		return data;
+	},
+
+	create: function(width, height, defaultTerrain=MD.WATER) {
+		this.handleTerrain(new MatrixHex(width, height, defaultTerrain));
+	},
+	makeid: function(len, prefix='') {
+		const possible = "ABCDEFGHKLMNPQRSTUVWXYZ123456789";
+		const valuesPerChar = possible.length;
+		let id = prefix;
+		for(let i = id.length; i < len; ++i)
+			id += possible.charAt(Math.floor(Math.random() * valuesPerChar));
+		return id;
+	},
+	createRandom: function() {
+		const seed = $('#scenario').value = this.makeid(10);
+		this.load();
+	},
+
+	load: function() {
+		const scenId = $('#scenario').value;
+		if(!scenId)
+			return this.error('scenario required.');
+		this.status('loading scenario '+scenId+'...');
+
+		http.get('/pelagium/scenarios', {id:scenId}, (data, code)=>{
+			if(code!=200)
+				return this.error("loading scenario failed");
+			this.scenId = scenId;
+			console.log(data);
+			this.handleTerrain(data.terrain);
+			if(data.units) for(let i=0; i<data.units.length; ++i) {
+				const unit = data.units[i];
+				const cell = this.mapView.get(unit.x,unit.y);
+				cell.unit = unit;
+			}
+			for(let i=0; i<data.objectives.length; ++i) {
+				const obj = data.objectives[i];
+				if(obj.party)
+					this.mapView.get(obj.x,obj.y).party = obj.party;
+			}
+			for(let id in data.starts) {
+				const obj = data.objectives[data.starts[id]];
+				this.mapView.get(obj.x,obj.y).party = Number(id);
+			}
+			if('visibility' in data)
+				this.flags.visibility = data.visibility;
+			if('navalUnitsAllowed' in data)
+				this.flags.navalUnitsAllowed = data.navalUnitsAllowed;
+			this.status('scenario '+scenId+' loaded.')
+		});
+	},
+	save: function() {
+		const scenId = $('#scenario').value;
+		if(!scenId.length || !this.mapView)
+			return this.error('no scenario data available');
+
+		const data =this.serialize();
+		console.log('saving', data);
+
+		let anchor = document.createElement('a');
+		anchor.setAttribute('href', 'data:application/json,'
+			+ encodeURIComponent(JSON.stringify(data)));
+		anchor.setAttribute('download', scenId+'.json');
+		this.scenId = scenId;
+
+		let event = document.createEvent('MouseEvents');
+		event.initEvent('click', true, true);
+		anchor.dispatchEvent(event);
+	},
+	handleTerrain: function(data) {
+		let map = this.mapView = new MatrixHex(data);
+		for(let x=0; x!=map.width; ++x) {
+			for(let y=0; y!=map.height; ++y) {
+				let tile = { terrain:map.get(x, y) };
+				map.set(x,y, tile);
+			}
+		}
+		this.init();
+	},
+	status: function(msg) {
+		$('#status').innerHTML = msg;
+	},
+	error: function(msg) {
+		this.status('ERROR '+msg);
+	},
+
+	renderer: null,
+	mapView: null,
+	flags: {
+		visibility: 'hidden', // or 'public'
+		navalUnitsAllowed: false,
+	},
+	scenId: '',
+	tool: '',
+	terrain:0,
+	unit: 'inf',
+	party:1,
+};
+		</script>
+	</head>
+
+	<body
+		><div id="paneCredentials"
+			><label for="scenario">Scenario</label
+			><input type="text" id="scenario"
+			/><button onclick="app.load();">Load</button
+			><button onclick="app.save();">Save</button
+			><button onclick="app.createRandom();">Rand</button
+			><label for="btn_terrain">Terrain</label
+			><button id="btn_terrain" onclick="app.nextTerrain();">water</button
+			><label for="btn_unit">Unit</label
+			><button id="btn_unit" onclick="app.nextUnit();">inf</button
+			><label for="btn_party">Party</label
+			><button id="btn_party" onclick="app.nextParty();">Blue</button
+		></div
+		><div id="map" style="position:relative;"
+			><canvas id="background" style="z-index:0;"></canvas
+			><canvas id="foreground" style="z-index:1;"></canvas
+		></div
+		><div id="controls"
+			><span id="status">messages are displayed here.</span
+		></div
+	></body>
+</html>

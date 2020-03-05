@@ -445,7 +445,7 @@ let AI = function(sim, credentials, autoPilot=false, isSynchronous=false) {
 
 			for(let j=0; j<defenders.length && mission.numUnits<defenders.length; ++j) {
 				let unit = defenders[j];
-				if(unit.mission==missionId)
+				if(unit.mission==missionId || unit.type.medium!==1)
 					continue;
 				if(!unit.mission
 					|| !(unit.mission in this.missions)
@@ -460,7 +460,7 @@ let AI = function(sim, credentials, autoPilot=false, isSynchronous=false) {
 
 		for(let id in this.units) {
 			let unit = this.units[id];
-			if(unit.party.id!=this.credentials.party)
+			if(unit.party.id!=this.credentials.party || unit.type.medium!==1)
 				continue;
 			if(unit.mission) {
 				if(unit.mission in this.missions)

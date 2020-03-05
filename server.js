@@ -9,7 +9,6 @@ const JsonValidator = require('./JsonSchemaValidator')
 let cfg = {
 	ip:'0.0.0.0',
 	port:1771,
-	devMode: 1,
 	gcInterval: 60*60*12,
 	matchTimeout: 60*60*24*3,
 	matchOverTimeout: 60*60*24,
@@ -209,18 +208,22 @@ function ServerPelagium(topLevelPath, persistence) {
 		if(path.length==1) {
 			if(method=='GET')
 				return httpUtils.serveStatic(resp, 'static/index.html');
-			if(method=='POST') { // new match
-				params.devMode = cfg.devMode;
+			if(method=='POST') // new match
 				return respond(resp, this.matchCreate(params));
-			}
 			return respond(resp, 405,'Method Not Allowed')
 		}
 
 		if(path.length==2) {
 			let id = path[1];
 			if(method=='GET') {
-				if(id=='scenarios')
-					return respond(resp, 200, Sim.visibleScenarios);
+				if(id=='scenarios') {
+					if(!('id' in params))
+						return respond(resp, 200, Sim.visibleScenarios);
+					const scenId = params.id;
+					if(scenId in Sim.scenarios)
+						return respond(resp, 200, Sim.scenarios[scenId]);
+					return respond(resp, 200, Sim.createScenario({seed:scenId}));
+				}
 				else if(id=='availableMatches') {
 					let remoteIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
 					if(remoteIp=='127.0.0.1')

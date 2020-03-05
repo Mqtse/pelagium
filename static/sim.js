@@ -200,6 +200,8 @@ function Sim(params, callback) {
 
 		var numInvalidOrders = 0;
 		var unitsHavingOrders = {}; // ensure that at most one command per unit
+		var carriedUnitLocations = new MatrixSparse(null);
+
 		for(var i=0; i<orders.length; ++i) {
 			var order = orders[i];
 
@@ -217,27 +219,62 @@ function Sim(params, callback) {
 			var orderValid = false;
 			switch(order.type) {
 			case 'move': {
-				var unit = this.map.get(order.from_x, order.from_y).unit;
-				if(!unit || unit.id != order.unit) {
+				var unit = carriedUnitLocations.get(order.from_x, order.from_y);
+				if(unit && unit.id != order.unit)
+					unit = null;
+
+				const originTile = this.map.get(order.from_x, order.from_y);
+				if(!unit)
+					unit = originTile.unit;
+				if(!unit) {
 					console.warn('validateOrders: unit not found at location', order);
 					break;
+				}
+				if(unit.id != order.unit) {
+					if(unit.carries && unit.carries.id == order.unit)
+						unit = unit.carries;
+					else {
+						console.warn('validateOrders: unit not found at location', order);
+						break;
+					}
 				}
 				if(unit.party.id != party) {
 					console.warn('validateOrders: unit does not obey to party', party);
 					break;
 				}
-				var distance = MatrixHex.distHex(unit, { x:order.to_x, y:order.to_y });
+				var distance = MatrixHex.distHex(
+					{x:order.from_x, y:order.from_y}, {x:order.to_x, y:order.to_y});
 				if(distance<1 || distance>unit.type.move) {
 					console.warn('validateOrders: unit destination beyond movement range', order);
 					break;
 				}
+
+				if(unit.type.medium===MD.GROUND && originTile.terrain===MD.WATER) {
+					if(distance>1) {
+						console.warn('validateOrders: invalid disembark beyond adjacent tile', order);
+						break;
+					}
+					const destTile = this.map.get(order.to_x, order.to_y);
+					if(destTile.terrain===MD.WATER) {
+						console.warn('validateOrders: invalid disembark from water to water tile', order);
+						break;
+					}
+				}
+
 				orderValid = true;
+				if(unit.carries)
+					carriedUnitLocations.set(order.to_x, order.to_y, unit.carries);
 				break;
 			}
 			case 'production': {
-				var tile = this.map.get(order.x, order.y);
-				if(tile && tile.party==party && tile.terrain==MD.OBJ && (order.unit in MD.Unit))
-					orderValid = true;
+				const tile = this.map.get(order.x, order.y);
+				const unitType = order.unit;
+				if(tile && tile.party==party && tile.terrain==MD.OBJ && (unitType in MD.Unit)) {
+					if(MD.Unit[unitType].medium == MD.WATER && !this.navalUnitsAllowed)
+						console.warn('validateOrders: naval unit production not allowed in this scenario', order);
+					else
+						orderValid = true;
+				}
 				else
 					console.warn('validateOrders: location does not obey to production orders', order);
 				break;
@@ -257,6 +294,8 @@ function Sim(params, callback) {
 		let ordersOut = [];
 		let unitsToIgnore = {};
 		let occupiedTiles = new MatrixSparse(false);
+		var carrierLocations = new MatrixSparse(null);
+
 		for(let j=0; j<orders.length; ++j) {
 			let order = orders[j];
 			if(!order)
@@ -266,8 +305,35 @@ function Sim(params, callback) {
 				continue;
 			}
 
-			let unit = this.map.get(order.from_x, order.from_y).unit;
-			const fov =this.parties[unit.party.id].fov;
+			let actualLocation = null;
+			let unit = carrierLocations.get(order.from_x, order.from_y);
+			if(unit && unit.carries && unit.carries.id == order.unit) {
+				actualLocation = {x:unit.x, y:unit.y};
+				unit = unit.carries;
+				unit.x = order.from_x; // only temporarily
+				unit.y = order.from_y;
+			}
+			else unit = this.map.get(order.from_x, order.from_y).unit;
+			if(!unit)
+				continue;
+
+			if(unit.id != order.unit) {
+				if(unit.carries && unit.carries.id == order.unit)
+					unit = unit.carries;
+				else
+					continue;
+			}
+
+			let actualDestUnit;
+			const carrierAtDest = carrierLocations.get(order.to_x, order.to_y);
+			if(carrierAtDest) {
+				let destTile = this.map.get(order.to_x, order.to_y);
+				actualDestUnit = destTile.unit;
+				destTile.unit = carrierAtDest; // temporarily replace by expected carrier
+				delete unitsToIgnore[carrierAtDest.id];
+			}
+
+			const fov = this.parties[unit.party.id].fov;
 			let path = unit.getPath(this.map.page, order.to_x, order.to_y, unitsToIgnore, occupiedTiles, fov);
 			let from = unit;
 			for(let i=0, end=path.length; i!=end; ++i) {
@@ -275,11 +341,22 @@ function Sim(params, callback) {
 				ordersOut.push({type:'move', unit:order.unit, from_x:from.x, from_y:from.y, to_x:to.x, to_y:to.y});
 				from = to;
 				unitsToIgnore[order.unit] = true;
-				const expelledUnit = this.map.get(to.x, to.y).unit;
-				if(expelledUnit)
-					unitsToIgnore[expelledUnit.id] = true;
-				if(i+1==path.length)
+				const destUnit = this.map.get(to.x, to.y).unit;
+				if(destUnit && !unit.canEmbark(destUnit))
+					unitsToIgnore[destUnit.id] = true;
+				if(i+1==path.length) {
 					occupiedTiles.set(to.x, to.y, true);
+					if(unit.type.capacity)
+						carrierLocations.set(order.to_x, order.to_y, unit);
+				}
+			}
+			if(actualLocation!==null) {
+				unit.x = actualLocation.x;
+				unit.y = actualLocation.y;
+			}
+			if(carrierAtDest) {
+				this.map.get(order.to_x, order.to_y).unit = actualDestUnit;
+				unitsToIgnore[carrierAtDest.id] = true;
 			}
 		}
 		return ordersOut;
@@ -353,29 +430,48 @@ function Sim(params, callback) {
 		if(this.dbgChannel)
 			this.dbgChannel.postMessage({turn:this.turn, mergedOrders:orders});
 
-			var events = [];
-			for(var i=0; i<orders.length; ++i) {
+		var events = [];
+		for(var i=0; i<orders.length; ++i) {
 			var order = orders[i];
 			switch(order.type) {
 			case 'move': {
-				var unit = this.map.get(order.from_x, order.from_y).unit;
-				if( !unit || unit.id != order.unit
+				var unit = this.map.get(order.from_x, order.from_y).unit, carrier=null;
+				if(!unit)
+					continue;
+				if(unit.id != order.unit && unit.carries) {
+					carrier = unit;
+					unit = unit.carries;
+					order.type = 'disembark';
+				}
+				if(unit.id != order.unit
 					|| !this.map.unitMove(unit, { x:order.to_x, y:order.to_y }, events) )
 				{
-					//console.log('move failed', order);
 					continue;
 				}
+
 				events.push(order);
+				var dest = this.map.get(order.to_x, order.to_y);
+				var destUnit = dest.unit;
+				if(carrier)
+					carrier.carries = null;
+
+				if(unit.canEmbark(destUnit)) {
+					if(destUnit.load(unit))
+						events.push({ type:'embark', unit:unit.id,
+							x:order.to_x, y: order.to_y, carrier:destUnit.id });
+					continue;
+				}
+
 				if((unit.party.id in this.parties) && this.parties[unit.party.id].fov)
 					this.parties[unit.party.id].fov.set(order.to_x, order.to_y, 1);
 				this._evaluteContactEvents(unit, order, events);
 
-				var dest = this.map.get(order.to_x, order.to_y);
-				var opponent = dest.unit;
-				if(opponent && !this._evaluateCombat(unit, { x:order.from_x, y:order.from_y }, opponent, events)) {
+				if(destUnit && !this._evaluateCombat(
+					unit, { x:order.from_x, y:order.from_y }, destUnit, events))
+				{
 					if(dest.terrain == MD.OBJ && (unit.party.id in this.parties)) {
 						let party = this.parties[unit.party.id];
-						party.knownObjectives[dest.id] = opponent.party.id;
+						party.knownObjectives[dest.id] = destUnit.party.id;
 					}
 					continue; // attacker lost
 				}
@@ -591,15 +687,21 @@ function Sim(params, callback) {
 			events.push({ type:'retreat', score:score, from_x:winner.x, from_y:winner.y,
 				to_x:retreatPos.x, to_y:retreatPos.y, unit:looser.id });
 			var dest = this.map.get(retreatPos.x, retreatPos.y);
-			dest.unit = looser;
+			if(dest.unit && dest.unit!=looser && dest.unit.hasCapacity(looser))
+				dest.unit.load(looser);
+			else
+				dest.unit = looser;
 			if(dest.terrain == MD.OBJ)
 				this._capture(dest, looser, events);
 		}
 		else {
 			events.push({ type:'surrender', score:score, x:looser.x, y:looser.y,
 				unit:looser.id });
-			if(looserParty)
+			if(looserParty) {
 				--looserParty.units;
+				if(looser.carries)
+					--looserParty.units;
+			}
 		}
 		return looser==defender;
 	}
@@ -713,6 +815,7 @@ function Sim(params, callback) {
 			lastUpdateTime: this.lastUpdateTime,
 			simEventCounter: this.simEventCounter,
 			isTutorial: this.isTutorial,
+			navalUnitsAllowed: this.navalUnitsAllowed,
 			map: this.map.serialize(),
 			numObjectivesVictory: this.numObjectivesVictory,
 
@@ -738,6 +841,7 @@ function Sim(params, callback) {
 		this.lastUpdateTime = data.lastUpdateTime;
 		this.simEventCounter = data.simEventCounter;
 		this.isTutorial = data.isTutorial ? true : false;
+		this.navalUnitsAllowed = ('navalUnitsAllowed' in data) ? data.navalUnitsAllowed : false;
 		this.map = new MapHex(data.map);
 		this.parties = data.parties;
 		this.numParties = 0;
@@ -793,7 +897,8 @@ function Sim(params, callback) {
 			pageSz:32,
 			fractionObjectivesVictory:0.66,
 			timePerTurn: 86400, // 1 day
-			id:''
+			id:'',
+			navalUnitsAllowed:false
 		};
 		for(var key in defaults)
 			this[key] =(key in params) ?
@@ -808,6 +913,11 @@ function Sim(params, callback) {
 			scenario.seed = this.scenario;
 		else {
 			var scn = Sim.scenarios[this.scenario];
+			if(!scn)
+				scn = http.getSync('/pelagium/scenarios', {id:this.scenario});
+			if(!scn)
+				return console.error('invalid scenario id', this.scenario);
+
 			for(var key in scn) {
 				if(key==='visibility')
 					continue;
@@ -830,6 +940,8 @@ function Sim(params, callback) {
 		this.map = new MapHex(scenario);
 		this.numObjectivesVictory = Math.ceil(
 			this.map.getObjectives().length * this.fractionObjectivesVictory);
+		if('navalUnitsAllowed' in scenario)
+			this.navalUnitsAllowed = scenario.navalUnitsAllowed;
 	
 		this._initStats(scenario);
 		this.simEventCounter = 0;
@@ -880,7 +992,10 @@ function Sim(params, callback) {
 	this.dbgChannel = null;
 	this.prevState = this.prevPrevState = null;
 	if(callback) {
-		var credentials = { party:params.party ? params.party : 1 };
+		var credentials = {
+			party:params.party ? params.party : 1,
+			navalUnitsAllowed:this.navalUnitsAllowed
+		};
 		if(this.isSimOnClient) {
 			credentials.mode = params.cmd;
 			credentials.parties = {};
@@ -894,8 +1009,21 @@ function Sim(params, callback) {
 	}
 }
 
+Sim.createScenario = function(params) {
+	const createTerrain = require('../terrainGenerator');
+	if(!params.seed)
+		return null;
+	var terrain = createTerrain(params);
+	params.terrain = terrain.serialize(true);
+	params.objectives = terrain.objectives;
+	if(!params.starts)
+		params.starts = { 1:0, 2:params.objectives.length-1 };
+	delete params.seed;
+	delete params.tiles;
+	return params;
+}
+
 Sim.loadScenarios = function(path) {
-	var createTerrain = require('../terrainGenerator');
 	var Storage = require('../DiskStorage');
 	var storage = new Storage(path);
 	var scenarios = Sim.scenarios = {};
@@ -908,16 +1036,8 @@ Sim.loadScenarios = function(path) {
 			++numScenarios;
 			if(!('visibility' in data)||data.visibility!='hidden')
 				visible[id] = data;
-
-			if('seed' in data) {
-				var terrain = createTerrain(data)
-				data.terrain = terrain.serialize(true);
-				data.objectives = terrain.objectives;
-				if(!data.starts)
-					data.starts = { 1:0, 2:data.objectives.length-1 };
-				delete data.seed;
-				delete data.tiles;
-			}
+			if('seed' in data)
+				Sim.createScenario(data);
 		}
 	});
 	//storage.setItem('builtinScenarios', scenarios);

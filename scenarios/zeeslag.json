@@ -1,0 +1,13 @@
+{
+    "terrain":{"width":20,"height":20,"data":[0,-246,3,0,-18,1,0,-33,3,0,-18,1,0,-76]},
+    "starts":{"1":0,"2":1},
+    "objectives":[{"x":2,"y":15,"party":1},{"x":7,"y":12,"party":2}],
+    "visibility":"hidden","navalUnitsAllowed":true,
+    "units":[
+        {"type":"inf","x":2,"y":16,"party":1},
+        {"type":"sail","x":3,"y":15,"party":1},
+        {"type":"sail","x":4,"y":16,"party":1},
+        {"type":"sail","x":6,"y":14,"party":2},
+        {"type":"sail","x":6,"y":15,"party":2},
+        {"type":"inf","x":7,"y":13,"party":2}]
+}
