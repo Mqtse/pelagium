@@ -168,9 +168,9 @@ textarea, #screen_contact input {
 	margin-bottom:1em;
 }
 .help_icon {
-	width:40px;
-	height:40px;
-	margin-top:-10px;
+	width:48px;
+	height:48px;
+	margin-top:-4px;
 }
 
 #screen_story > p, #screen_privacy > p, #screen_contact p, #screen_contact label, #screen_legal > p {
@@ -410,9 +410,9 @@ app = {
 		eludi.addKeyEventListener(window, (event)=>{ this.handleKeyEvent(event); });
 
 		this.fillTerrainTable();
-		this.fillUnitTable();
 
 		let finalizeInit = (params)=>{
+			this.fillUnitTable();
 			if(typeof this[params.screen] == 'function')
 				this[params.screen](params);
 			this.screen('screen' in params ? params.screen : 'main');
@@ -513,6 +513,8 @@ app = {
 		for(let id in data) {
 			if(data[id].visibility==='hidden')
 				continue;
+			if(this.serverless && data[id].navalUnitsAllowed)
+				continue;
 			let li = parent.firstChild.cloneNode(true);
 			li.style.display='';
 			li.dataset.id = id;
@@ -527,7 +529,9 @@ app = {
 		if(!navigator.onLine && location.hostname != 'localhost')
 			return alert('server connection required for starting a new game');
 		let params = {cmd:'start'};
-		if(!scenario) {
+		if(scenario)
+			params.parties = { "1":0, "2":2 };
+		else {
 			let config = this.readConfig();
 			if(config) {
 				scenario = config.scenario;
@@ -598,7 +602,8 @@ app = {
 		dc.clearRect(0,0, canvas.width, canvas.height);
 		dc.drawImage(canvasOrig, 0,0, canvas.width, canvas.height);
 
-		let scenario = this.scenarios[scenId];
+		const scenario = this.scenarios[scenId];
+		const navalUnitsAllowed = scenario.navalUnitsAllowed;
 		let parent = screen.querySelector('#parties');
 		while(parent.childElementCount>1)
 			parent.removeChild(parent.lastChild);
@@ -610,6 +615,8 @@ app = {
 			li.querySelector('div').innerHTML = MD.Party[id].name;
 			let radioPartyType = li.querySelector('.party_player');
 			radioPartyType.addEventListener('click', (evt)=>{
+				if(evt.target.classList.contains('disabled'))
+					return;
 				if(evt.target.innerHTML=='you') {
 					let siblings = parent.querySelectorAll('.party_player');
 					let targetParent = evt.target.parentElement;
@@ -624,13 +631,24 @@ app = {
 				}
 				switchClassId(evt.target);
 			});
-			if(startsCounter < 2)
-				switchClassId(radioPartyType.children[startsCounter]);
+			if(startsCounter == 0)
+				switchClassId(radioPartyType.children[0]);
+			else if(startsCounter == 1)
+				switchClassId(radioPartyType.children[navalUnitsAllowed ? 2 : 1]);
 			else
 				switchClassId(radioPartyType.children[3]);
 			parent.appendChild(li);
 			++startsCounter;
 		}
+		if(scenario.navalUnitsAllowed)
+			for(let i=0, items = screen.querySelectorAll('.opponentAI'); i<items.length; ++i)
+				items[i].classList.add('disabled');
+		else
+			for(let i=0, items = screen.querySelectorAll('.opponentAI'); i<items.length; ++i)
+				items[i].classList.remove('disabled');
+		if(startsCounter < 3)
+			for(let i=0, items = screen.querySelectorAll('.opponentNo'); i<items.length; ++i)
+				items[i].classList.add('disabled');
 		this.screen('config');
 	},
 	readConfig: function() {
@@ -731,8 +749,7 @@ app = {
 
 			table.set(1, col, '<canvas id="icon_terrain_'+terrain.id+'" class="help_icon"></canvas>');
 			let canvas = document.querySelector('#icon_terrain_'+terrain.id);
-			canvas.style.width = canvas.style.height = '40px';
-			canvas.width = canvas.height = 40 * pixelRatio;
+			canvas.width = canvas.height = 48 * pixelRatio;
 
 			let dc = extendCanvasContext(canvas.getContext('2d'));
 			dc.hex(canvas.width/2, canvas.height/2, canvas.height/2, {fillStyle:terrain.color});
@@ -753,17 +770,15 @@ app = {
 		let col = 1;
 		for(let id in MD.Unit) {
 			const unit = MD.Unit[id];
+			if(this.serverless && unit.medium==MD.WATER)
+				continue;
 
-			table.set(1, col, '<canvas id="icon_'+unit.id+'" class="help_icon"></canvas>');
-			let canvas = document.querySelector('#icon_'+unit.id);
-			canvas.style.width = canvas.style.height = '40px';
-			canvas.width = canvas.height = 40 * pixelRatio;
-
-			let dc = extendCanvasContext(canvas.getContext('2d'));
-			dc.fillStyle = MD.Party[1].color;
-			dc.fillRect(0,0, canvas.width, canvas.height);
-			dc.strokeUnit(id, canvas.width, canvas.height, 7*pixelRatio, 'white');
-			canvas.parentNode.style.background = 'none';
+			table.set(1, col, '<img id="icon_'+unit.id+'" class="help_icon" src="'+
+				unit.id+'.svg"/>');
+			let icon = document.querySelector('#icon_'+unit.id);
+			if(!unit.symbol)
+				icon.style.background = '#00f';
+			icon.parentNode.style.background = 'none';
 
 			table.colName(col, unit.name);
 			table.set(2, col, unit.move).set(3, col, unit.attack).set(4, col, unit.defend);
@@ -916,9 +931,9 @@ Good luck!
 						><div>party name</div
 						><ul class="party_player"
 							><li data-value="0">you</li
-							><li data-value="1">A.I.</li
+							><li data-value="1" class="opponentAI">A.I.</li
 							><li data-value="2" class="multiplayer">human</li
-							><li data-value="-1">no one</li
+							><li data-value="-1" class="opponentNo">no one</li
 						></ul
 					></li
 				></ul

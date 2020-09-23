@@ -1,4 +1,4 @@
-function ProductionController(selector, unitColor, callback) {
+function ProductionController(selector, unitColor, renderer, callback) {
 	var element=document.querySelector(selector);
 
 	this.setProduction = function(id, progress=0.0) {
@@ -32,12 +32,7 @@ function ProductionController(selector, unitColor, callback) {
 			var sz = canvas.width/2;
 			dc.save();
 			dc.translate(0.5*(canvas.width-sz), 0.5*(canvas.height-sz));
-			dc.beginPath();
-			dc.rect(0,0, sz,sz);
-			dc.clip();
-			dc.fillStyle = unitColor;
-			dc.fillRect(0,0, sz,sz);
-			dc.strokeUnit(toolId, sz,sz, sz/6, 'white');
+			renderer.drawType(dc, unitColor, toolId, 0,0, sz,sz);
 			dc.restore();
 
 			const Unit = MD.Unit[toolId];
@@ -94,8 +89,8 @@ function ProductionController(selector, unitColor, callback) {
 		item.title = Unit.name+', '+Unit.cost+' turns';
 
 		let canvas = document.createElement('canvas');
-		canvas.width = canvas.height = 48 * pixelRatio;
-		canvas.style.width = canvas.style.he9ght = '100%';
+		canvas.width = canvas.height = 56 * pixelRatio;
+		canvas.style.width = canvas.style.height = '100%';
 		item.appendChild(canvas);
 		item.onclick = function(evt) {
 			callback(evt.currentTarget.dataset.id);
@@ -110,7 +105,7 @@ function ProductionController(selector, unitColor, callback) {
 // --- client ------------------------------------------------------
 client = {
 	settings: {
-		cellHeight:36,
+		cellHeight:52,
 		scales: [ 18, 26, 36, 52, 72 ]
 	},
 	loadPreferences: function() {
@@ -132,8 +127,12 @@ client = {
 		this.background.dc = extendCanvasContext(this.background.getContext("2d"));
 		this.foreground = document.getElementById('foreground');
 		this.foreground.dc = extendCanvasContext(this.foreground.getContext("2d"));
+		const cellMetrics = MapHex.calculateCellMetrics(this.settings.cellHeight);
 		this.vp = {
-			x:0, y:0, width:1, height:1, offsetX:0, offsetY:0, cellMetrics:null, pixelRatio:1,
+			x:0, y:0, width:1, height:1,
+			offsetX:0.5*cellMetrics.r, offsetY:0,
+			pixelRatio: window.devicePixelRatio || 1,
+			cellMetrics: cellMetrics,
 			mapToScreen: function(pos) {
 				let x = pos.x-this.x;
 				let y = pos.y-this.y;
@@ -193,8 +192,8 @@ client = {
 		if(credentials.mode=='start')
 			this.cache.removeItem('/orders');
 		this.workers = [];
-		this.renderer = new RendererSVG(
-			this.foreground.dc, 2*this.settings.scales[this.settings.scales.length-1], this.vp.pixelRatio);
+		this.renderer = new RendererSVG(this.foreground.dc, this.vp.pixelRatio);
+		this.renderer.setScale(this.settings.cellHeight);
 
 		let aiOpponents = [];
 		for(let id in this.parties) {
@@ -222,7 +221,8 @@ client = {
 			this.handleUIEvent({ type:event.currentTarget.dataset.id }); });
 		if(!document.fullscreenEnabled && !document.webkitFullscreenEnabled)
 			this.hideMenuItem('fullscreen');
-		this.toolbarProduction = new ProductionController('#toolbar_production', MD.Party[this.party].color,
+		this.toolbarProduction = new ProductionController('#toolbar_production',
+			MD.Party[this.party].color, this.renderer,
 			(unitType)=>{ if(this.cursor) this.handleProductionInput(unitType, this.cursor.x, this.cursor.y); });
 		if(!this.isDemo && !this.isTutorial)
 			this.hideMenuItem('exit');
@@ -318,13 +318,8 @@ client = {
 			}
 		}
 
-		if(this.vp.cellMetrics === null) {
-			this.vp.cellMetrics = MapHex.calculateCellMetrics(this.settings.cellHeight);
-			this.vp.offsetX = 0.5*this.vp.cellMetrics.r;
-			this.vp.offsetY = 0;
-		}
 		if(!scaleOnly) {
-			let pixelRatio = this.vp.pixelRatio = window.devicePixelRatio || 1;
+			let pixelRatio = this.vp.pixelRatio;
 			this.background.width = this.foreground.width = width * pixelRatio;
 			this.background.height = this.foreground.height = height * pixelRatio;
 			this.background.dc.scale(pixelRatio, pixelRatio);
@@ -722,26 +717,31 @@ client = {
 				centerX = this.background.width/2;
 			if(centerY===undefined)
 				centerY = this.background.height/2;
-			this.viewZoom(factor, centerX, centerY);
-			this.emit('fullDraw');
+			if(this.viewZoom(factor, centerX, centerY))
+				this.emit('fullDraw');
 		}
 	},
 
 	viewZoom: function(factor, centerX, centerY, deltaX, deltaY) {
 		var scales = this.settings.scales;
 		var scale = factor * this.vp.cellMetrics.h;
+		const dimMin = Math.min(window.innerWidth, window.innerHeight);
 		var scaleMin = scales[0], scaleMax = scales[scales.length-1];
+		for(let i=1; i<scales.length && scales[i]*28<dimMin; ++i)
+			scaleMin = scales[i];
 		if(scale < scaleMin)
-			scale = scales[0];
+			scale = scaleMin;
 		else if(scale > scaleMax)
 			scale = scaleMax;
 		if(scale == this.vp.cellMetrics.h)
-			return;
+			return false;
 		var dx = centerX * (factor-1.0) + (deltaX!==undefined ? deltaX : 0);
 		var dy = centerY * (factor-1.0) + (deltaY!==undefined ? deltaY : 0);
 		this.vp.cellMetrics = MapHex.calculateCellMetrics(scale);
+		this.renderer.setScale(scale);
 		this.resize(true);
 		this.viewPan(dx, dy);
+		return true;
 	},
 
 	viewPan: function(dX, dY) {

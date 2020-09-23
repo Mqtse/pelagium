@@ -1,4 +1,3 @@
-const qs = require('querystring');
 const os = require('os');
 
 const httpUtils = require('./httpUtils');
@@ -15,6 +14,9 @@ let cfg = {
 	persistence: false,
 	sslPath: false,
 	redirectHttp: false,
+	master: null,
+	externalURL: '',
+	heartbeatInterval: 30,
 	captive: false,
 	scenarios: 'scenarios'
 }
@@ -163,7 +165,13 @@ function ServerPelagium(topLevelPath, persistence) {
 		if(params.mode)
 			details.mode = params.mode;
 		match.sim._postPresenceEvent(user.party, 'join', details);
-		return [ 200, { match:match.id, id:user.id, party:user.party, parties:this.getParties(match) } ];
+		return [ 200, {
+			match:match.id,
+			id:user.id,
+			party:user.party,
+			parties:this.getParties(match),
+			navalUnitsAllowed: match.sim.navalUnitsAllowed
+		} ];
 	}
 
 	this.resumeFrom = function(storage) {
@@ -225,7 +233,7 @@ function ServerPelagium(topLevelPath, persistence) {
 					return respond(resp, 200, Sim.createScenario({seed:scenId}));
 				}
 				else if(id=='availableMatches') {
-					let remoteIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+					const remoteIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
 					if(remoteIp=='127.0.0.1')
 						return respond(resp, 200, this.availableMatches());
 				}
@@ -312,9 +320,11 @@ let server = httpUtils.createServer(cfg, (req, resp, url)=>{
 	case 'labs':
 		if(url.path.length==2)
 			return httpUtils.serveStatic(resp, url.path[1], __dirname+'/'+url.path[0]);
+		return false;
 	case 'media':
 		if(url.path.length==2)
 			return httpUtils.streamMedia(resp, url.path[1], __dirname+'/'+url.path[0]);
+		return false;
 	case 'info':
 		return server.usage(req, resp);
 	case 'serviceworker.js':
@@ -324,7 +334,7 @@ let server = httpUtils.createServer(cfg, (req, resp, url)=>{
 		return httpUtils.redirect(req, resp, url, { path:[ serverPelagium.path ] });
 });
 server.startTime = new Date();
-server.usage = function(req, resp) {
+server.getUsageData = function(cb) {
 	this.getConnections((err, count)=>{
 		let upMins = Math.floor(((new Date())-this.startTime)/1000/60);
 		let sysUpMins = Math.round(os.uptime()/60);
@@ -340,6 +350,7 @@ server.usage = function(req, resp) {
 				memoryFree: `${Math.round(os.freemem() / 1048576)}MB`,
 				memoryTotal: `${Math.round(os.totalmem() / 1048576)}MB`,
 				loadAvg: os.loadavg(),
+				cpuCount: os.cpus().length,
 				uptime: Math.floor(sysUpMins/60/24)+'d '+(Math.floor(sysUpMins/60)%24)+'h '+(sysUpMins%60)+'m'
 			}
 		}
@@ -347,10 +358,16 @@ server.usage = function(req, resp) {
 			data.process.memoryUsage[id] = Math.round(data.process.memoryUsage[id]/1024)+'kB';
 		if('cpuUsage' in process)
 			data.process.cpuUsage = process.cpuUsage()
+		cb(data);
+	});
+}
+server.usage = function(req, resp) {
+	this.getUsageData((data)=>{
 		httpUtils.respond(resp, 200, data);
 	});
 	return true;
 }
+
 let serverHttp = null;
 if(server.isHttps && cfg.redirectHttp) {
 	serverHttp = httpUtils.createServer({ ip:cfg.ip, port:cfg.redirectHttp },
@@ -360,4 +377,26 @@ if(server.isHttps && cfg.redirectHttp) {
 	);
 }
 
-httpUtils.onShutdown(()=>{ console.log( "shutting down." ); });
+if(cfg.master) {
+	const sendHeartBeat = function(evt = 'heartbeat') {
+		server.getUsageData((data)=>{
+			data.evt = evt;
+			if(cfg.externalURL)
+				data.url = cfg.externalURL;
+			httpUtils.post(cfg.master, data, (err)=>{
+				if(err)
+					return console.error('posting heartbeat failed:', err);
+			});
+		});
+	}
+	sendHeartBeat('startup');
+	setInterval(sendHeartBeat, cfg.heartbeatInterval * 1000);
+}
+
+httpUtils.onShutdown(()=>{
+	if(cfg.master) {
+		const msg = cfg.externalURL ? { evt:'shutdown', url:cfg.externalURL } : { evt:'shutdown' };
+		httpUtils.post(cfg.master, msg);
+	}
+	console.log( "shutting down." );
+});

@@ -114,8 +114,7 @@ let app = {
 		this.resize();
 		window.onresize = function() { app.resize(); }
 
-		this.renderer = new RendererAdhoc(
-			this.foreground.dc, 2*scale, this.vp.pixelRatio);
+		this.renderer = new RendererAdhoc(this.foreground.dc, this.vp.pixelRatio);
 
 		this.update();
 	},

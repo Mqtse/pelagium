@@ -68,7 +68,7 @@ function respond(resp, code, body, mime) {
 		console.log('>>', code, body);
 		headers['Content-Type']='application/json';
 		resp.writeHead(code, headers);
-		resp.end('{"status":'+code+',"error":"'+body+'"}');
+		resp.end('{"status":'+code+',"error":'+JSON.stringify(body)+'}');
 	}, 1500); // delay potential denial of service / brute force attacks
 	return true;
 }
@@ -80,7 +80,7 @@ function serveStatic(resp, path, basePath) {
 		basePath = __dirname;
 	fs.readFile(basePath + '/'+path, (err,data)=>{
 		if (err)
-			return respond(resp, 404, err);
+			return respond(resp, 404, err.message);
 
 		let mime = inferMime(path);
 		let headers = { 'Content-Type':mime };
@@ -133,22 +133,22 @@ function parseUrl(url, params) {
 	return url;
 }
 
-function redirect(req, resp, url, loc) {
-	if(!loc)
+function redirect(req, resp, url, dest) {
+	if(!dest)
 		return false;
 	let code = 302;
-	if(typeof loc=='object') {
-		let prot = loc.protocol ? loc.protocol : url.protocol ? url.protocol :
+	if(typeof dest=='object') {
+		let prot = dest.protocol ? dest.protocol : url.protocol ? url.protocol :
 			req.connection.encrypted ? 'https:' : 'http:';
 		if(prot.slice(-1)!=':')
 			prot += ':';
-		let hostname = loc.hostname ? loc.hostname :
+		let hostname = dest.hostname ? dest.hostname :
 			url.hostname ? url.hostname : req.headers.host;
-		let port = loc.port ? loc.port : (url.port!=80 && url.port!=443) ? url.port : '';
-		let pathname = loc.pathname ? loc.pathname : loc.path ?
-			('/' + loc.path.join('/')) : url.pathname;
-		let search = loc.search ? loc.search :
-			loc.query ? ('?'+qs.stringify(loc.query)) : url.search;
+		let port = dest.port ? dest.port : (url.port!=80 && url.port!=443) ? url.port : '';
+		let pathname = dest.pathname ? dest.pathname : dest.path ?
+			('/' + dest.path.join('/')) : url.pathname;
+		let search = dest.search ? dest.search :
+			dest.query ? ('?'+qs.stringify(dest.query)) : url.search;
 		let u = '';
 		if(hostname || prot || port)
 			u = prot + '//' + hostname;
@@ -159,13 +159,78 @@ function redirect(req, resp, url, loc) {
 			u += search; 
 		if(url.hash)
 			u += url.hash;
-		if('code' in loc)
-			code = loc.code;
-		loc = u;
+		if('code' in dest)
+			code = dest.code;
+		dest = u;
 	}
-	console.log(req.method, req.url,'--', code, '-->', loc);
-	resp.writeHead(code, { 'Location': loc });
+	console.log(req.method, req.url,'--', code, '-->', dest);
+	resp.writeHead(code, { 'Location': dest });
 	resp.end();
+	return true;
+}
+
+// transparent reverse proxy delegation to dest server, based on https://stackoverflow.com/a/20354642
+function delegate(client_req, client_resp, dest) {
+	const getIp = function(ip) {
+		return (ip.substr(0, 7) == "::ffff:") ? ip.substr(7) : ip;
+	}
+	//console.log('serve: ' + client_req.url);
+
+	if(typeof dest === 'string')
+		dest = new URL(dest);
+	let options = {
+		hostname: dest.hostname,
+		protocol: dest.protocol ? dest.protocol : 'http:',
+		port: dest.port,
+		path: client_req.url,
+		method: client_req.method,
+		headers: {}
+	};
+	options.headers.host = options.hostname+':'+options.port;
+	for(let key in client_req.headers)
+		if(key!='host')
+			options.headers[key] = client_req.headers[key];
+
+	if(!('x-forwarded-for' in options.headers))
+		options.headers['x-forwarded-for'] = getIp(client_req.socket.remoteAddress);
+	options.headers['x-forwarded-for'] 	+= ', '+ getIp(client_req.socket.localAddress);
+	//console.log(options);
+
+	let proxy_resp = null;
+	const httpx = (options.protocol == 'https:') ? https : http;
+	let proxy_req = httpx.request(options, (resp)=>{
+		proxy_resp = resp;
+		if(resp.statusCode>=300 && resp.statusCode<400) { // handle redirect:
+			let redirect = new URL(resp.headers.location);
+			if(redirect.protocol == options.protocol && redirect.hostname == options.hostname
+				&& redirect.port == options.port)
+			{
+				redirect.protocol = ('getTicketKeys' in client_req.client.server) ? 'https:' : 'http:';
+				redirect.host = client_req.headers.host;
+				resp.headers.location = redirect.href;
+			}
+			//console.log('redirect location:', redirect);
+		}
+		client_resp.writeHead(resp.statusCode, resp.headers);
+		resp.pipe(client_resp, { end: true });
+	});
+
+	proxy_req.on('error', (err)=>{
+		if(err.code == 'ECONNRESET') // client-side hang up
+			client_resp.end();
+		else {
+			console.error(err);
+			respond(client_resp, 500, err);
+		}
+	});
+	client_resp.on('close', ()=>{
+		if(proxy_resp) {
+			proxy_resp.unpipe();
+			proxy_resp = null;
+		}
+		proxy_req.abort();
+	});
+	client_req.pipe(proxy_req, { end: true });
 	return true;
 }
 
@@ -190,7 +255,7 @@ function createServer(cfg, handlers) {
 					return;
 			respond(resp, 404, req.url+" Not Found");
 		}
-		if(req.method!='POST')
+		if(cfg.retainRequestBody || req.method!='POST')
 			return handle();
 		let body = '';
 		req.on('data', (data)=>{
@@ -242,11 +307,40 @@ function parseArgs(args, settings) {
 	return true;
 }
 
+function post(url, params, callback) {
+	const data = params ? 'params='+JSON.stringify(params) : '';
+	const options = {
+	  method: 'POST',
+	  headers: {
+		'Content-Type': 'application/json',
+		'Content-Length': data.length
+	  }
+	}
+
+	const protocol = url.startsWith('http:') ? http: https;
+	const req = protocol.request(url, options, callback ? (resp)=>{
+		if(resp.statusCode>=400)
+			return callback(resp.statusCode);
+		let body = '';
+		resp.on('data', (chunk) => { body += chunk; });
+		resp.on('end', ()=>{
+			try {
+				body = JSON.parse(body);
+			} catch (er) { }
+			callback(null, body);
+		});
+	} : null);
+	if(callback)
+		req.on('error', (error)=>{ callback(error); });
+	req.write(data);
+	req.end();
+}
+
 function onShutdown(callback) {
 	const shutdown = function() {
 		if(callback)
 			callback();
-		process.exit();
+		setTimeout(()=>{ process.exit(); }, 250);
 	}
 	process.on('SIGINT', shutdown);
 	process.on('SIGTERM', shutdown);
@@ -258,7 +352,9 @@ module.exports = {
 	streamMedia: streamMedia,
 	createServer: createServer,
 	redirect: redirect,
+	delegate: delegate,
 	parseArgs: parseArgs,
 	parseUrl: parseUrl,
+	post: post,
 	onShutdown: onShutdown
 }

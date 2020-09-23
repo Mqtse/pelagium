@@ -1003,7 +1003,11 @@ function Sim(params, callback) {
 				if(key==credentials.party)
 					credentials.parties[key] = {};
 				else
-					credentials.parties[key] = { party:key, mode:'AI' };
+					credentials.parties[key] = {
+						party:key,
+						mode:'AI',
+						navalUnitsAllowed:this.navalUnitsAllowed
+					};
 		}
 		callback(credentials, this);
 	}

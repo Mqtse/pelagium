@@ -213,7 +213,16 @@ function TransitionFade(background='black', alphaFrom=0.0, alphaTo=1.0, duration
 }
 
 //--- renderer -----------------------------------------------------
-function RendererAdhoc(dc, size, pixelRatio) {
+function RendererAdhoc(dc, pixelRatio) {
+
+	this.drawType = function(dc, color, type, x,y,w,h) {
+		dc.beginPath();
+		dc.rect(x,y, w,h);
+		dc.clip();
+		dc.fillStyle = color;
+		dc.fillRect(x,y, w,h);
+		dc.strokeUnit(type, w,h, w/6, 'white');
+	}
 	this.drawUnit = function(party, type, x,y, w,h, symbolOpacity=1.0) {
 		const lineWidth = w/6;
 		const shadowR = lineWidth*0.7*pixelRatio;
@@ -234,16 +243,21 @@ function RendererAdhoc(dc, size, pixelRatio) {
 		dc.strokeUnit(type, w,h, lineWidth, 'rgba(255,255,255,'+symbolOpacity+')');
 		dc.restore();
 	}
+	this.setScale = function(scale) { }
 }
 
-function RendererSVG(dc, size, pixelRatio) {
+function RendererSVG(dc, pixelRatio) {
+	const detailLimit = 24;
 	let silhouettes = {};
+	let silSprites = {};
 	let symbols = {};
+
 	for(let type in MD.Unit) {
 		const unitType = MD.Unit[type];
 		if(!unitType.symbol) {
 			let sprite = new Image();
 			sprite.src = type+'.svg';
+			sprite.id = type;
 			silhouettes[type] = sprite;
 		}
 		else {
@@ -260,11 +274,27 @@ function RendererSVG(dc, size, pixelRatio) {
 		}
 	}
 
-	this.drawUnit = function(party, type, x,y,w,h, symbolOpacity=1.0) {
-		const lineWidth = w/6;
-		const shadowR = lineWidth*0.7*pixelRatio;
-
+	this.drawType = function(dc, color, type, x,y,w,h) {
+		dc.save();
+		dc.fillStyle = color;
 		if(type in silhouettes) {
+			dc.fillRect(x,y,w,h);
+			dc.drawImage(silhouettes[type], x,y,w,h);
+		}
+		else if(type in symbols) {
+			let symbol = symbols[type];
+			dc.translate(x,y);
+			dc.scale(w*1.75, h*1.75);
+			dc.fill(symbol.coloredPaths);
+			dc.fillStyle='#fff';
+			dc.fill(symbol.monoPaths);
+		}
+		dc.restore();
+	}
+	this.drawUnit = function(party, type, x,y,w,h, symbolOpacity=1.0) {
+		const shadowR = w*0.7*pixelRatio/6;
+
+		if(type in silSprites) {
 			dc.save();
 			dc.shadowColor='rgba(0,0,0,0.4)';
 			dc.shadowOffsetX = shadowR;
@@ -276,7 +306,7 @@ function RendererSVG(dc, size, pixelRatio) {
 
 			dc.save();
 			dc.globalAlpha *= symbolOpacity;
-			dc.drawImage(silhouettes[type], x,y,w,h);
+			dc.drawImage(silSprites[type], x,y,w,h);
 			dc.restore();
 		}
 		else if(type in symbols) {
@@ -286,15 +316,46 @@ function RendererSVG(dc, size, pixelRatio) {
 			dc.shadowOffsetY = shadowR;
 			dc.shadowBlur = shadowR;
 
-			let symbol = symbols[type];
-			dc.translate(x,y);
-			dc.scale(w*1.75, h*1.75);
-			dc.fillStyle = MD.Party[party].color;
-			dc.fill(symbol.coloredPaths);
-			dc.globalAlpha *= symbolOpacity;
-			dc.fillStyle='#fff';
-			dc.fill(symbol.monoPaths);
+			if(this.scale*pixelRatio<detailLimit) {
+				const r = w/2;
+				dc.circle(x+r,y+r,r, { fillStyle:MD.Party[party].color});
+			}
+			else {
+				let symbol = symbols[type];
+				dc.translate(x,y);
+				dc.scale(w*1.75, h*1.75);
+				dc.fillStyle = MD.Party[party].color;
+				dc.fill(symbol.coloredPaths);
+				dc.globalAlpha *= symbolOpacity;
+				dc.fillStyle='#fff';
+				dc.fill(symbol.monoPaths);
+			}
 			dc.restore();
+		}
+	}
+	this.scale = 0;
+	this.setScale = function(scale) {
+		if(scale===this.scale)
+			return;
+		this.scale = scale;
+		// update silhouette sprites:
+		const sz = scale*Math.tan(Math.PI/6) * (pixelRatio<2?2: pixelRatio);
+
+		const drawSprite = function(id, sz) {
+			let sprite = document.createElement('canvas');
+			sprite.width = sprite.height = sz;
+			let dc = sprite.getContext('2d');
+			if(scale*pixelRatio>=detailLimit)
+				dc.drawImage(silhouettes[id], 0,0,sz,sz);
+			silSprites[id] = sprite;
+		}
+
+		for(let id in silhouettes) {
+			if(silhouettes[id].complete)
+				drawSprite(id, sz);
+			else
+				silhouettes[id].addEventListener('load', (evt)=>{
+					drawSprite(evt.target.id, sz); });
 		}
 	}
 }

@@ -25,7 +25,8 @@ http = {
 			if(callback) xhr.onload = xhr.onerror = xhr.ontimeout = function(event) {
 				var status = (xhr.status===undefined) ? -1 : (xhr.status==1223) ? 204 : xhr.status;
 				var response = (xhr.status==-1 || xhr.status==204) ? null
-					: (xhr.contentType=='application/json' || (('getResponseHeader' in xhr) && xhr.getResponseHeader('Content-Type')=='application/json'))
+					: (xhr.contentType=='application/json'
+						|| (('getResponseHeader' in xhr) && xhr.getResponseHeader('Content-Type')=='application/json'))
 					? JSON.parse(xhr.responseText) : xhr.responseText;
 				if(event.type == 'error')
 					console.error(url, event);
@@ -64,7 +65,9 @@ http = {
 			console.error(url, xhr.status);
 			return false;
 		}
-		return (xhr.contentType=='application/json' || (('getResponseHeader' in xhr) && xhr.getResponseHeader('Content-Type')=='application/json'))
+		return (xhr.contentType=='application/json' ||
+			(('getResponseHeader' in xhr)
+				&& xhr.getResponseHeader('Content-Type')=='application/json'))
 			? JSON.parse(xhr.responseText) : xhr.responseText;
 	},
 
